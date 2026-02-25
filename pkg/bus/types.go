@@ -17,3 +17,14 @@ type OutboundMessage struct {
 }
 
 type MessageHandler func(InboundMessage) error
+
+// SteeringMessage represents a user interruption during agent processing.
+// When a steering message is received, the agent skips remaining tools
+// and processes the user's new input.
+type SteeringMessage struct {
+	Channel    string `json:"channel"`
+	ChatID     string `json:"chat_id"`
+	Content    string `json:"content"`
+	SessionKey string `json:"session_key"`
+	Timestamp  int64  `json:"timestamp"`
+}

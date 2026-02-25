@@ -38,6 +38,7 @@ type AgentLoop struct {
 	summarizing    sync.Map
 	fallback       *providers.FallbackChain
 	channelManager *channels.Manager
+	activeSessions sync.Map // tracks sessions currently being processed
 }
 
 // processOptions configures how a message is processed
@@ -167,7 +168,35 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				continue
 			}
 
+			// Determine the session key for this message
+			sessionKey := al.determineSessionKey(msg)
+
+			// Check if this session is currently being processed (auto-detect interruption)
+			if _, isActive := al.activeSessions.Load(sessionKey); isActive {
+				// Convert to steering message instead of queuing
+				al.bus.PublishSteering(bus.SteeringMessage{
+					Channel:    msg.Channel,
+					ChatID:     msg.ChatID,
+					Content:    msg.Content,
+					SessionKey: sessionKey,
+					Timestamp:  time.Now().Unix(),
+				})
+				logger.InfoCF("agent", "Steering message published (auto-detect)",
+					map[string]any{
+						"session_key": sessionKey,
+						"channel":     msg.Channel,
+					})
+				continue
+			}
+
+			// Mark session as active
+			al.activeSessions.Store(sessionKey, true)
+
 			response, err := al.processMessage(ctx, msg)
+
+			// Mark session as inactive
+			al.activeSessions.Delete(sessionKey)
+
 			if err != nil {
 				response = fmt.Sprintf("Error processing message: %v", err)
 			}
@@ -202,6 +231,27 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 func (al *AgentLoop) Stop() {
 	al.running.Store(false)
+}
+
+// determineSessionKey determines the session key for a given message.
+// This mirrors the routing logic in processMessage to identify active sessions.
+func (al *AgentLoop) determineSessionKey(msg bus.InboundMessage) string {
+	// Honor pre-set agent-scoped keys (for ProcessDirect/cron)
+	if msg.SessionKey != "" && strings.HasPrefix(msg.SessionKey, "agent:") {
+		return msg.SessionKey
+	}
+
+	// Route to determine agent and session key
+	route := al.registry.ResolveRoute(routing.RouteInput{
+		Channel:    msg.Channel,
+		AccountID:  msg.Metadata["account_id"],
+		Peer:       extractPeer(msg),
+		ParentPeer: extractParentPeer(msg),
+		GuildID:    msg.Metadata["guild_id"],
+		TeamID:     msg.Metadata["team_id"],
+	})
+
+	return route.SessionKey
 }
 
 func (al *AgentLoop) RegisterTool(tool tools.Tool) {
@@ -656,8 +706,28 @@ func (al *AgentLoop) runLLMIteration(
 		// Save assistant message with tool calls to session
 		agent.Sessions.AddFullMessage(opts.SessionKey, assistantMsg)
 
-		// Execute tool calls
-		for _, tc := range normalizedToolCalls {
+		// Execute tool calls with steering check
+		var steeringMsg *bus.SteeringMessage
+		for i, tc := range normalizedToolCalls {
+			// Check for steering message before each tool
+			if steering, ok := al.bus.ConsumeSteeringForSession(opts.SessionKey); ok {
+				steeringMsg = &steering
+				logger.InfoCF("agent", "Steering message received, skipping remaining tools",
+					map[string]any{
+						"agent_id":     agent.ID,
+						"session_key":  opts.SessionKey,
+						"skipped_from": i,
+						"total_tools":  len(normalizedToolCalls),
+					})
+				// Skip remaining tools
+				for _, skipTC := range normalizedToolCalls[i:] {
+					skipResult := skipToolCall(skipTC)
+					messages = append(messages, skipResult)
+					agent.Sessions.AddFullMessage(opts.SessionKey, skipResult)
+				}
+				break
+			}
+
 			argsJSON, _ := json.Marshal(tc.Arguments)
 			argsPreview := utils.Truncate(string(argsJSON), 200)
 			logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(%s)", tc.Name, argsPreview),
@@ -722,9 +792,35 @@ func (al *AgentLoop) runLLMIteration(
 			// Save tool result message to session
 			agent.Sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
 		}
+
+		// If steering was received, inject user message and continue
+		if steeringMsg != nil {
+			userMsg := providers.Message{
+				Role:    "user",
+				Content: fmt.Sprintf("[User interrupted]: %s", steeringMsg.Content),
+			}
+			messages = append(messages, userMsg)
+			agent.Sessions.AddMessage(opts.SessionKey, "user", userMsg.Content)
+			logger.InfoCF("agent", "Steering message injected into conversation",
+				map[string]any{
+					"session_key": opts.SessionKey,
+					"content":     utils.Truncate(steeringMsg.Content, 50),
+				})
+			// Continue to next iteration to process the steering message
+			continue
+		}
 	}
 
 	return finalContent, iteration, nil
+}
+
+// skipToolCall creates a tool result message for skipped calls due to user interruption.
+func skipToolCall(tc providers.ToolCall) providers.Message {
+	return providers.Message{
+		Role:       "tool",
+		Content:    "Skipped due to user interruption.",
+		ToolCallID: tc.ID,
+	}
 }
 
 // updateToolContexts updates the context for tools that need channel/chatID info.
@@ -1117,6 +1213,21 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 		default:
 			return fmt.Sprintf("Unknown switch target: %s", target), true
 		}
+
+	case "/interrupt":
+		if len(args) == 0 {
+			return "Usage: /interrupt <message>", true
+		}
+		content := strings.Join(args, " ")
+		sessionKey := al.determineSessionKey(msg)
+		al.bus.PublishSteering(bus.SteeringMessage{
+			Channel:    msg.Channel,
+			ChatID:     msg.ChatID,
+			Content:    content,
+			SessionKey: sessionKey,
+			Timestamp:  time.Now().Unix(),
+		})
+		return "Interrupt signal sent.", true
 	}
 
 	return "", false
