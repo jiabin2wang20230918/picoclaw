@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=bingo
 WorkingDirectory=/home/bingo/llm/picoclaw
-ExecStart=/home/bingo/llm/picoclaw/build/picoclaw-linux-amd64 gateway
+ExecStart=/home/bingo/llm/picoclaw/build/picoclaw gateway
 Restart=on-failure
 RestartSec=5
 
