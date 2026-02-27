@@ -39,6 +39,9 @@ type AgentLoop struct {
 	fallback       *providers.FallbackChain
 	channelManager *channels.Manager
 	activeSessions sync.Map // tracks sessions currently being processed
+
+	// Modular architecture components placeholder for future Beehive integration
+	useModular     bool // Feature flag to control which system is used
 }
 
 // processOptions configures how a message is processed
@@ -70,6 +73,9 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		stateManager = state.NewManager(defaultAgent.Workspace)
 	}
 
+	// Default to original system, can be overridden via config/env
+	useModular := false // Use feature flag to enable modular system
+
 	return &AgentLoop{
 		bus:         msgBus,
 		cfg:         cfg,
@@ -77,6 +83,8 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		state:       stateManager,
 		summarizing: sync.Map{},
 		fallback:    fallbackChain,
+		// Initialize modular architecture support but default to disabled
+		useModular: useModular,
 	}
 }
 
