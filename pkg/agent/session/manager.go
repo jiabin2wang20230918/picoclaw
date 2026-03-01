@@ -4,7 +4,7 @@ package session
 import (
 	"context"
 
-	"github.com/sipeed/picoclaw/pkg/agent/events"
+	"github.com/sipeed/picoclaw/pkg/agent/interfaces"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/session"
 )
@@ -22,7 +22,7 @@ func NewManager(storageDir string) *Manager {
 }
 
 // UpdateSession updates the session state based on the event.
-func (sm *Manager) UpdateSession(ctx context.Context, event *events.SessionUpdatedEvent) error {
+func (sm *Manager) UpdateSession(ctx context.Context, event *interfaces.SessionUpdated) error {
 	// Update the session with the new data
 	sm.sessionManager.SetHistory(event.SessionKey, event.History)
 	if event.Summary != "" {

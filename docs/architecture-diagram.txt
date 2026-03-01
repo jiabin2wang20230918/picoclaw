@@ -1,0 +1,127 @@
+PicoClaw Agent Architecture - Complete Modular Design
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         MAIN SYSTEM BOUNDARY                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                       AgentLoop Core                                │  │
+│  │  Main coordinator handling message processing cycle                 │  │
+│  │  - Receives messages from MessageBus                                │  │
+│  │  - Routes messages via Router component                             │  │
+│  │  - Builds context via ContextBuilder component                      │  │
+│  │  - Orchestrates LLM calls via LLMOrchestrator                       │  │
+│  │  - Executes tools via ToolExecutor component                        │  │
+│  │  - Manages sessions via SessionManager                              │  │
+│  │  - Handles memory via MemoryManager                                 │  │
+│  │  - Applies permissions via Permissions system                       │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                           │
+                            ┌──────────────┼──────────────┐
+                            ▼              ▼              ▼
+                    ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+                    │   Router    │  │ Context     │  │ LLM         │
+                    │   Component │  │ Builder     │  │ Orchestrator│
+                    │             │  │             │  │ Component   │
+                    │ Routes msg  │  │ Builds      │  │ Manages LLM │
+                    │ to agents   │  │ context for │  │ interaction │
+                    │             │  │ LLM proc.   │  │ and loops   │
+                    │ Uses:       │  │ Uses:       │  │ Uses:       │
+                    │ - routing   │  │ - history   │  │ - provider  │
+                    │ - registry  │  │ - summary   │  │ - tools     │
+                    │             │  │ - prompts   │  │ - fallback  │
+                    └─────────────┘  └─────────────┘  └─────────────┘
+                            │              │              │
+                            └──────────────┼──────────────┘
+                                           ▼
+                                   ┌─────────────┐
+                                   │  Tool       │
+                                   │  Executor   │
+                                   │  Component  │
+                                   │             │
+                                   │ Executes    │
+                                   │ tools with  │
+                                   │ permission  │
+                                   │ enforcement │
+                                   │ Uses:       │
+                                   │ - ToolGuard │
+                                   │ - Registry  │
+                                   │ - Context   │
+                                   └─────────────┘
+                                           │
+                            ┌──────────────┼──────────────┐
+                            ▼              ▼              ▼
+                   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+                   │ Session     │  │ Memory      │  │ Permissions │
+                   │ Manager     │  │ Manager     │  │ Component   │
+                   │             │  │             │  │             │
+                   │ Manages     │  │ Handles     │  │ Controls    │
+                   │ history &   │  │ long-term   │  │ access to   │
+                   │ state       │  │ memory      │  │ tools per   │
+                   │ Uses:       │  │ Uses:       │  │ agent &     │
+                   │ - sessions  │  │ - MEMORY.md │  │ channel     │
+                   │ - history   │  │ - daily     │  │ Uses:       │
+                   │ - summary   │  │ - context   │  │ - policies  │
+                   └─────────────┘  └─────────────┘  └─────────────┘
+
+AgentLoop Core Components Integration:
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   AGENTLOOP CORE PROCESS FLOW                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 1. Message Reception:                                                     │
+│    MessageBus → AgentLoop → processMessage()                              │
+│                                                                           │
+│ 2. Message Routing:                                                       │
+│    processMessage() → RouterComponent → determineAgent()                  │
+│                                                                           │
+│ 3. Context Building:                                                      │
+│    Agent determined → ContextBuilder → BuildContext()                     │
+│    Includes adaptive compression when needed                              │
+│                                                                           │
+│ 4. LLM Orchestration:                                                     │
+│    Context ready → LLMOrchestrator → runLLMIteration()                    │
+│    Handles tool loops and iterations                                      │
+│                                                                           │
+│ 5. Tool Execution:                                                        │
+│    Tool calls detected → ToolExecutor → ExecuteWithContext()              │
+│    Includes permission checking via ToolGuard                             │
+│                                                                           │
+│ 6. State Management:                                                      │
+│    Updates → SessionManager & MemoryManager                               │
+│    Persists conversation history and memory                               │
+│                                                                           │
+│ 7. Response Generation:                                                   │
+│    Final content → publish to MessageBus → outbound messages              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Legacy Compatibility Layer:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 LEGACY INTERFACE COMPATIBILITY                           │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     AgentLoop Interface                             │  │
+│  │  Maintains backward compatibility for:                              │  │
+│  │  - ProcessDirect() - Direct message processing                      │  │
+│  │  - ProcessHeartbeat() - Periodic processing                         │  │
+│  │  - Run() - Main message loop                                        │  │
+│  │  - RegisterTool() - Tool registration                               │  │
+│  │  Can switch between:                                                │  │
+│  │  - Original monolithic behavior (default)                           │  │
+│  │  - Modular component-based behavior (via feature flag)              │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Key Interfaces (pkg/agent/interfaces/interfaces.go):
+- MessageRouter: Routes messages to appropriate agents
+- ContextBuilder: Builds message context for LLM processing
+- LLMOrchestrator: Manages LLM interactions and tool loops
+- ToolExecutor: Executes tools and manages results
+- SessionManager: Handles conversation history and state
+- MemoryManager: Handles memory persistence
+- AgentSupervisor: Coordinates agent lifecycle and orchestration
+
+Data Flow (Core Loop):
+Inbound Message → AgentLoop → Router → ContextBuilder → LLM Orchestrator →
+Tool Executor → Session/Memory Managers → Outbound Response
+
+Permissions Enforcement:
+All tool executions pass through ToolGuard which checks policies before allowing execution based on agent ID and channel.
