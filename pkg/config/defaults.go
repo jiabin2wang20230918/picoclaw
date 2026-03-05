@@ -17,6 +17,15 @@ func DefaultConfig() *Config {
 				MaxTokens:           8192,
 				Temperature:         nil, // nil means use provider default
 				MaxToolIterations:   20,
+				Compaction: CompactionConfig{
+					ReserveTokens:      16384,
+					KeepRecentTokens:   20000,
+					ReserveTokensFloor: 20000,
+					MemoryFlush: MemoryFlushConfig{
+						Enabled:             true,
+						SoftThresholdTokens: 4000,
+					},
+				},
 			},
 		},
 		Bindings: []AgentBinding{},
@@ -297,6 +306,10 @@ func DefaultConfig() *Config {
 			},
 			Exec: ExecConfig{
 				EnableDenyPatterns: true,
+			},
+			Browser: BrowserConfig{
+				Enabled: false,
+				CDPURL:  "ws://localhost:9222", // Default Chrome DevTools Protocol URL
 			},
 			Skills: SkillsToolsConfig{
 				Registries: SkillsRegistriesConfig{

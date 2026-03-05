@@ -39,6 +39,7 @@ require (
 	github.com/grbit/go-json v0.11.0 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/mafredri/cdp v0.33.0
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
@@ -53,3 +54,5 @@ require (
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 )
+
+replace github.com/mafredri/cdp => github.com/mafredri/cdp v0.33.0

@@ -226,6 +226,10 @@
       "enable_deny_patterns": false,
       "custom_deny_patterns": []
     },
+    "browser": {
+      "enabled": false,
+      "cdp_url": "http://localhost:9222"
+    },
     "skills": {
       "registries": {
         "clawhub": {

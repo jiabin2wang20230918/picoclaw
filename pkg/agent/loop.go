@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -494,7 +495,15 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 
 	// 5. Handle empty response
 	if finalContent == "" {
-		finalContent = opts.DefaultResponse
+		// Check if recent tool activity occurred in the last few messages
+		history := agent.Sessions.GetHistory(opts.SessionKey)
+		if hasRecentToolActivity(history, 5) { // Check recent 5 messages for tool activity
+			// If recent tool activity exists, don't show default message (silent completion)
+			finalContent = ""
+		} else {
+			// Otherwise, use the default response
+			finalContent = opts.DefaultResponse
+		}
 	}
 
 	// 6. Save final assistant message to session
@@ -572,6 +581,12 @@ func (al *AgentLoop) runLLMIteration(
 				"tools_json":    formatToolsForLog(providerToolDefs),
 			})
 
+		// Apply session pruning to reduce memory usage by trimming old tool results
+		// Only if the agent has compaction config available and pruning is configured
+		if agent.CompactionConfig.KeepRecentTokens > 0 {
+			messages = al.pruneSessionMemory(agent, opts.SessionKey, messages)
+		}
+
 		// Call LLM with fallback chain if candidates are configured.
 		var response *providers.LLMResponse
 		var err error
@@ -610,13 +625,7 @@ func (al *AgentLoop) runLLMIteration(
 				break
 			}
 
-			errMsg := strings.ToLower(err.Error())
-			isContextError := strings.Contains(errMsg, "token") ||
-				strings.Contains(errMsg, "context") ||
-				strings.Contains(errMsg, "invalidparameter") ||
-				strings.Contains(errMsg, "length")
-
-			if isContextError && retry < maxRetries {
+			if isContextOverflowError(err.Error()) && retry < maxRetries {
 				logger.WarnCF("agent", "Context window error detected, attempting compression", map[string]any{
 					"error": err.Error(),
 					"retry": retry,
@@ -633,8 +642,9 @@ func (al *AgentLoop) runLLMIteration(
 				al.forceCompression(agent, opts.SessionKey)
 				newHistory := agent.Sessions.GetHistory(opts.SessionKey)
 				newSummary := agent.Sessions.GetSummary(opts.SessionKey)
+				// IMPORTANT: Include the original user message when rebuilding messages after compression
 				messages = agent.ContextBuilder.BuildMessages(
-					newHistory, newSummary, "",
+					newHistory, newSummary, opts.UserMessage,
 					nil, opts.Channel, opts.ChatID,
 				)
 				continue
@@ -851,12 +861,126 @@ func (al *AgentLoop) updateToolContexts(agent *AgentInstance, channel, chatID st
 	}
 }
 
+// triggerMemoryFlush runs a silent memory flush before auto-compaction to ensure
+// important data is saved to persistent storage
+func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channel, chatID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	history := agent.Sessions.GetHistory(sessionKey)
+	summary := agent.Sessions.GetSummary(sessionKey)
+
+	// Build a memory flush prompt that encourages the model to save important info
+	memoryFlushPrompt := "Before we compact the conversation history, please save any important persistent information to your memory systems. " +
+		"This is an automatic reminder to ensure no important data is lost during upcoming history compression. " +
+		"You may reply with 'NO_REPLY' if no memory updates are needed."
+
+	messages := agent.ContextBuilder.BuildMessages(
+		history,
+		summary,
+		memoryFlushPrompt,
+		nil,
+		channel,
+		chatID,
+	)
+
+	// Execute a silent call to encourage memory saving
+	providerToolDefs := agent.Tools.ToProviderDefs()
+
+	// Call LLM with memory flush prompt
+	response, err := agent.Provider.Chat(ctx, messages, providerToolDefs, agent.Model, map[string]any{
+		"max_tokens":  agent.MaxTokens,
+		"temperature": agent.Temperature,
+	})
+
+	if err != nil {
+		logger.WarnCF("agent", "Memory flush failed", map[string]any{
+			"error": err.Error(),
+			"session_key": sessionKey,
+		})
+		return
+	}
+
+	// Execute any tool calls that might save important information
+	if len(response.ToolCalls) > 0 {
+		// Add the assistant's memory flush response to the history
+		assistantMsg := providers.Message{
+			Role:    "assistant",
+			Content: response.Content,
+		}
+		for _, tc := range response.ToolCalls {
+			argumentsJSON, _ := json.Marshal(tc.Arguments)
+			assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, providers.ToolCall{
+				ID:   tc.ID,
+				Type: "function",
+				Name: tc.Name,
+				Function: &providers.FunctionCall{
+					Name:      tc.Name,
+					Arguments: string(argumentsJSON),
+				},
+			})
+		}
+
+		// Execute the tool calls
+		for _, tc := range response.ToolCalls {
+			argsJSON, _ := json.Marshal(tc.Arguments)
+			argsPreview := utils.Truncate(string(argsJSON), 200)
+			logger.InfoCF("agent", fmt.Sprintf("Memory flush tool call: %s(%s)", tc.Name, argsPreview),
+				map[string]any{
+					"agent_id":  agent.ID,
+					"tool":      tc.Name,
+				})
+
+			toolResult := agent.Tools.ExecuteWithContext(
+				ctx,
+				tc.Name,
+				tc.Arguments,
+				channel,
+				chatID,
+				nil, // No async callback for memory flush
+			)
+
+			// Process the tool result
+			contentForLLM := toolResult.ForLLM
+			if contentForLLM == "" && toolResult.Err != nil {
+				contentForLLM = toolResult.Err.Error()
+			}
+
+			toolResultMsg := providers.Message{
+				Role:       "tool",
+				Content:    contentForLLM,
+				ToolCallID: tc.ID,
+			}
+
+			// Add to session for potential future reference
+			agent.Sessions.AddFullMessage(sessionKey, toolResultMsg)
+		}
+	}
+}
+
 // maybeSummarize triggers summarization if the session history exceeds thresholds.
 func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, chatID string) {
 	newHistory := agent.Sessions.GetHistory(sessionKey)
 	tokenEstimate := al.estimateTokens(newHistory)
-	threshold := agent.ContextWindow * 75 / 100
 
+	// Check if we should trigger a pre-compaction memory flush
+	if agent.CompactionConfig.MemoryFlush.Enabled {
+		reserveTokensFloor := agent.CompactionConfig.ReserveTokensFloor
+		softThresholdTokens := agent.CompactionConfig.MemoryFlush.SoftThresholdTokens
+		memoryFlushThreshold := agent.ContextWindow - reserveTokensFloor - softThresholdTokens
+
+		if tokenEstimate > memoryFlushThreshold {
+			// Trigger a silent memory flush to save important data before auto-compaction
+			go al.triggerMemoryFlush(agent, sessionKey, channel, chatID)
+		}
+	}
+
+	// OLD AUTO-COMPACTION LOGIC COMMENTED OUT:
+	// The auto-compaction feature has been removed in favor of the more intelligent
+	// session pruning mechanism. The pre-compaction memory flush above remains
+	// to ensure important data is saved before potential manual or error-driven
+	// compression events.
+	/*
 	if len(newHistory) > 20 || tokenEstimate > threshold {
 		summarizeKey := agent.ID + ":" + sessionKey
 		if _, loading := al.summarizing.LoadOrStore(summarizeKey, true); !loading {
@@ -873,49 +997,73 @@ func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, c
 			}()
 		}
 	}
+	*/
 }
 
 // forceCompression aggressively reduces context when the limit is hit.
 // It drops the oldest 50% of messages (keeping system prompt and last user message).
+// This version preserves tool call and tool result message pairs to maintain proper message sequence.
 func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 	history := agent.Sessions.GetHistory(sessionKey)
 	if len(history) <= 4 {
 		return
 	}
 
-	// Keep system prompt (usually [0]) and the very last message (user's trigger)
-	// We want to drop the oldest half of the *conversation*
-	// Assuming [0] is system, [1:] is conversation
-	conversation := history[1 : len(history)-1]
-	if len(conversation) == 0 {
-		return
+	// Identify tool call-result pairs to preserve
+	// Group messages by tool call relationships to maintain integrity
+	groupedMessages := al.groupRelatedMessages(history)
+
+	// Calculate how many groups to keep (preserve tool call/result relationships)
+	keepCount := len(groupedMessages) / 2 // Keep half of the message groups
+	if keepCount < 2 {
+		keepCount = 2 // Ensure we keep at least 2 groups
 	}
 
-	// Helper to find the mid-point of the conversation
-	mid := len(conversation) / 2
+	// Start with system message if present, then take the most recent groups
+	var newHistory []providers.Message
 
-	// New history structure:
-	// 1. System Prompt (with compression note appended)
-	// 2. Second half of conversation
-	// 3. Last message
+	// Preserve system message at the beginning
+	if len(history) > 0 && history[0].Role == "system" {
+		// Extract any compression notes that might already be present
+		var baseContent string
+		contentParts := strings.Split(history[0].Content, "\n\n[System Note:")
+		baseContent = contentParts[0]
 
-	droppedCount := mid
-	keptConversation := conversation[mid:]
+		// Add compression note to the original system prompt
+		droppedCount := len(history) - keepCount // Approximation
+		if len(contentParts) > 1 {
+			// There's already a compression note, add to it
+			droppedCount = al.parseDroppedCount(contentParts[1]) + (len(history) - keepCount) // Combine dropped counts
+		}
 
-	newHistory := make([]providers.Message, 0)
+		compressionNote := fmt.Sprintf(
+			"\n\n[System Note: Emergency compression dropped %d oldest messages due to context limit]",
+			droppedCount,
+		)
+		enhancedSystemPrompt := history[0]
+		enhancedSystemPrompt.Content = baseContent + compressionNote
+		newHistory = append(newHistory, enhancedSystemPrompt)
+	} else if len(history) > 0 {
+		// If first message is not system, include it
+		newHistory = append(newHistory, history[0])
+	}
 
-	// Append compression note to the original system prompt instead of adding a new system message
-	// This avoids having two consecutive system messages which some APIs (like Zhipu) reject
-	compressionNote := fmt.Sprintf(
-		"\n\n[System Note: Emergency compression dropped %d oldest messages due to context limit]",
-		droppedCount,
-	)
-	enhancedSystemPrompt := history[0]
-	enhancedSystemPrompt.Content = enhancedSystemPrompt.Content + compressionNote
-	newHistory = append(newHistory, enhancedSystemPrompt)
+	// Add the most recent message groups
+	startIdx := len(groupedMessages) - keepCount
+	if startIdx < 0 {
+		startIdx = 0
+	}
 
-	newHistory = append(newHistory, keptConversation...)
-	newHistory = append(newHistory, history[len(history)-1]) // Last message
+	for i := startIdx; i < len(groupedMessages); i++ {
+		newHistory = append(newHistory, groupedMessages[i]...)
+	}
+
+	// Always ensure we end with the last message if it's different from our content
+	if len(history) > 0 && len(newHistory) > 0 &&
+		(len(newHistory) == 1 || newHistory[len(newHistory)-1].Content != history[len(history)-1].Content) {
+		// Add last message if it's not already included
+		newHistory = append(newHistory, history[len(history)-1])
+	}
 
 	// Update session
 	agent.Sessions.SetHistory(sessionKey, newHistory)
@@ -923,9 +1071,92 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 
 	logger.WarnCF("agent", "Forced compression executed", map[string]any{
 		"session_key":  sessionKey,
-		"dropped_msgs": droppedCount,
+		"dropped_msgs": len(history) - len(newHistory),
 		"new_count":    len(newHistory),
 	})
+}
+
+// groupRelatedMessages groups related messages together, particularly preserving
+// assistant messages with tool_calls and their corresponding tool result messages
+func (al *AgentLoop) groupRelatedMessages(messages []providers.Message) [][]providers.Message {
+	if len(messages) == 0 {
+		return [][]providers.Message{}
+	}
+
+	var groups [][]providers.Message
+	var currentGroup []providers.Message
+
+	for i, msg := range messages {
+		// Start a new group if this is a system message or if we're at the start
+		if msg.Role == "system" || len(currentGroup) == 0 {
+			if len(currentGroup) > 0 {
+				groups = append(groups, currentGroup)
+			}
+			currentGroup = []providers.Message{msg}
+		} else if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			// Assistant message with tool calls - start a new group to capture the result
+			if len(currentGroup) > 0 {
+				groups = append(groups, currentGroup)
+			}
+			currentGroup = []providers.Message{msg}
+		} else if msg.Role == "tool" {
+			// Tool result message - add to current group if previous message was assistant with tool call
+			if len(currentGroup) > 0 {
+				// Check if there was a preceding assistant message with tool calls that this result corresponds to
+				// Look for matching ToolCallID in previous assistant message's ToolCalls
+				needsGrouping := false
+				for _, prevMsg := range currentGroup {
+					if prevMsg.Role == "assistant" && len(prevMsg.ToolCalls) > 0 {
+						// Found an assistant message with tool calls in current group
+						needsGrouping = true
+						break
+					}
+				}
+
+				// If current group has an assistant with tool calls, or if previous message was an assistant with tool calls
+				if needsGrouping || (i > 0 && messages[i-1].Role == "assistant" && len(messages[i-1].ToolCalls) > 0) {
+					currentGroup = append(currentGroup, msg)
+				} else {
+					// Standalone tool message - create new group
+					if len(currentGroup) > 0 {
+						groups = append(groups, currentGroup)
+					}
+					currentGroup = []providers.Message{msg}
+				}
+			} else {
+				// Standalone tool message - shouldn't normally happen but just in case
+				currentGroup = []providers.Message{msg}
+			}
+		} else {
+			// Regular message (user, assistant without tools) - if previous was a complete tool interaction, start new group
+			if len(currentGroup) > 0 {
+				groups = append(groups, currentGroup)
+			}
+			currentGroup = []providers.Message{msg}
+		}
+	}
+
+	// Add the last group
+	if len(currentGroup) > 0 {
+		groups = append(groups, currentGroup)
+	}
+
+	return groups
+}
+
+// parseDroppedCount extracts the dropped message count from a compression note string
+func (al *AgentLoop) parseDroppedCount(note string) int {
+	// Look for pattern "dropped X oldest messages" in the note
+	parts := strings.Split(note, "dropped ")
+	if len(parts) > 1 {
+		nextParts := strings.Split(parts[1], " ")
+		if len(nextParts) > 0 {
+			if count, err := strconv.Atoi(nextParts[0]); err == nil {
+				return count
+			}
+		}
+	}
+	return 0
 }
 
 // GetStartupInfo returns information about loaded tools and skills for logging.
@@ -1022,8 +1253,19 @@ func (al *AgentLoop) summarizeSession(agent *AgentInstance, sessionKey string) {
 
 	toSummarize := history[:len(history)-4]
 
-	// Oversized Message Guard
-	maxMessageTokens := agent.ContextWindow / 2
+	// Use agent's compaction config for smarter token management
+	reserveTokens := agent.CompactionConfig.ReserveTokens
+	if reserveTokens == 0 {
+		reserveTokens = 16384 // default
+	}
+
+	// Oversized Message Guard - use compaction config if available
+	maxMessageTokens := reserveTokens / 2
+	if agent.CompactionConfig.ReserveTokens > 0 {
+		maxMessageTokens = agent.CompactionConfig.ReserveTokens / 2
+	}
+
+	// Smart message filtering with priority handling
 	validMessages := make([]providers.Message, 0)
 	omitted := false
 
@@ -1031,11 +1273,15 @@ func (al *AgentLoop) summarizeSession(agent *AgentInstance, sessionKey string) {
 		if m.Role != "user" && m.Role != "assistant" {
 			continue
 		}
-		msgTokens := len(m.Content) / 2
+
+		// Calculate tokens using our estimator
+		msgTokens := al.estimateTokens([]providers.Message{m})
 		if msgTokens > maxMessageTokens {
 			omitted = true
 			continue
 		}
+
+		// Include the message in valid messages
 		validMessages = append(validMessages, m)
 	}
 
@@ -1043,9 +1289,17 @@ func (al *AgentLoop) summarizeSession(agent *AgentInstance, sessionKey string) {
 		return
 	}
 
-	// Multi-Part Summarization
+	// Multi-Part Summarization with configurable chunk size
 	var finalSummary string
-	if len(validMessages) > 10 {
+
+	// Use compaction config for chunk sizing, default to 10 if not set
+	chunkSize := 10
+	if agent.CompactionConfig.KeepRecentTokens > 10000 { // arbitrary threshold for determining if it's set
+		// Derive chunk size based on available space
+		chunkSize = 15  // Increase default for better performance with smart config
+	}
+
+	if len(validMessages) > chunkSize {
 		mid := len(validMessages) / 2
 		part1 := validMessages[:mid]
 		part2 := validMessages[mid:]
@@ -1236,6 +1490,56 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 			Timestamp:  time.Now().Unix(),
 		})
 		return "Interrupt signal sent.", true
+
+	case "/compact":
+		sessionKey := al.determineSessionKey(msg)
+		go func() {
+			// Optionally use any additional arguments as compaction instructions
+			// (Currently we use them to customize the summary approach, but the core summarizeSession handles the instruction)
+
+			// Override the session summary by running a manual summarization
+			defaultAgent := al.registry.GetDefaultAgent()
+			if defaultAgent != nil {
+				// Force a compaction by calling summarizeSession directly
+				summarizeKey := defaultAgent.ID + ":" + sessionKey
+				if _, loading := al.summarizing.LoadOrStore(summarizeKey, true); !loading {
+					defer al.summarizing.Delete(summarizeKey)
+
+					if !constants.IsInternalChannel(msg.Channel) {
+						al.bus.PublishOutbound(bus.OutboundMessage{
+							Channel: msg.Channel,
+							ChatID:  msg.ChatID,
+							Content: "Manual compaction initiated. Optimizing conversation history...",
+						})
+					}
+					al.summarizeSession(defaultAgent, sessionKey)
+				}
+			}
+		}()
+		return "Compaction started in background.", true
+
+	case "/new":
+		if len(args) < 1 {
+			return "Usage: /new [session]", true
+		}
+		switch args[0] {
+		case "session":
+			sessionKey := al.determineSessionKey(msg)
+			// Clear the session history to start fresh
+			defaultAgent := al.registry.GetDefaultAgent()
+			if defaultAgent != nil {
+				// Reset the session by truncating its history to 0 messages
+				defaultAgent.Sessions.TruncateHistory(sessionKey, 0)
+				// Also clear the summary
+				defaultAgent.Sessions.SetSummary(sessionKey, "")
+				// Save the cleared session
+				defaultAgent.Sessions.Save(sessionKey)
+				return "New session started. Previous conversation history cleared.", true
+			}
+			return "No default agent configured", true
+		default:
+			return fmt.Sprintf("Unknown new command: %s. Available: /new session", args[0]), true
+		}
 	}
 
 	return "", false
@@ -1266,4 +1570,193 @@ func extractParentPeer(msg bus.InboundMessage) *routing.RoutePeer {
 		return nil
 	}
 	return &routing.RoutePeer{Kind: parentKind, ID: parentID}
+}
+
+// pruneSessionMemory performs in-memory trimming of old tool results without
+// rewriting the persistent history, similar to openclaw's session pruning mechanism
+func (al *AgentLoop) pruneSessionMemory(agent *AgentInstance, sessionKey string, messages []providers.Message) []providers.Message {
+	// Only perform pruning if we have compaction config available
+	compactionConfig := agent.CompactionConfig
+
+	// If keepRecentTokens is 0, skip pruning
+	if compactionConfig.KeepRecentTokens <= 0 {
+		return messages
+	}
+
+	// Enhanced logic: preserve tool call-result pairs together
+	var prunedMessages []providers.Message
+	var accumulatedTokens int
+
+	// Process messages in reverse order (most recent first)
+	// This allows us to keep recent tool call-result pairs together
+	i := len(messages) - 1
+	for i >= 0 {
+		msg := messages[i]
+		msgTokens := al.estimateTokens([]providers.Message{msg})
+
+		// Always keep user and assistant messages
+		if msg.Role == "user" || msg.Role == "assistant" {
+			// Check if this is an assistant message with tool calls
+			if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+				// Look ahead to find associated tool results
+				// Add this assistant message
+				prunedMessages = append(prunedMessages, msg)
+				accumulatedTokens += msgTokens
+
+				// Find immediate following tool results that belong to this assistant message
+				j := i - 1
+				for j >= 0 {
+					nextMsg := messages[j]
+					if nextMsg.Role == "tool" && nextMsg.ToolCallID != "" {
+						// Check if this tool result corresponds to one of the tool calls
+						toolCallFound := false
+						for _, tc := range msg.ToolCalls {
+							if tc.ID == nextMsg.ToolCallID {
+								toolCallFound = true
+								break
+							}
+						}
+						if toolCallFound {
+							toolMsgTokens := al.estimateTokens([]providers.Message{nextMsg})
+							// Check if we can fit this tool result within our token budget
+							if accumulatedTokens + toolMsgTokens < compactionConfig.KeepRecentTokens {
+								prunedMessages = append(prunedMessages, nextMsg)
+								accumulatedTokens += toolMsgTokens
+								j--
+							} else {
+								// Can't fit this tool result, so break and stop adding
+								break
+							}
+						} else {
+							// This tool result doesn't belong to current assistant's tool calls
+							break
+						}
+					} else {
+						// Different role, stop looking for tool results
+						break
+					}
+				}
+
+				// Update i to skip processed messages
+				i = j
+			} else {
+				// Regular user/assistant message, check if fits in token budget
+				if accumulatedTokens + msgTokens < compactionConfig.KeepRecentTokens {
+					prunedMessages = append(prunedMessages, msg)
+					accumulatedTokens += msgTokens
+					i--
+				} else {
+					// Token budget exceeded, stop processing
+					break
+				}
+			}
+		} else if msg.Role == "tool" {
+			// For tool messages, check if we should keep them based on the keepRecentTokens config
+			if accumulatedTokens + msgTokens < compactionConfig.KeepRecentTokens {
+				// Look for the corresponding assistant message that initiated this tool call
+				prunedMessages = append(prunedMessages, msg)
+				accumulatedTokens += msgTokens
+				i--
+			} else {
+				// Token budget exceeded, stop processing
+				break
+			}
+		} else {
+			// Other message types (system, etc.) - include if space permits
+			if accumulatedTokens + msgTokens < compactionConfig.KeepRecentTokens {
+				prunedMessages = append(prunedMessages, msg)
+				accumulatedTokens += msgTokens
+				i--
+			} else {
+				// Token budget exceeded, stop processing
+				break
+			}
+		}
+	}
+
+	// Reverse the slice back to original chronological order
+	for i, j := 0, len(prunedMessages)-1; i < j; i, j = i+1, j-1 {
+		prunedMessages[i], prunedMessages[j] = prunedMessages[j], prunedMessages[i]
+	}
+
+	// Log if we pruned any messages
+	originalCount := len(messages)
+	prunedCount := len(prunedMessages)
+	if originalCount > prunedCount {
+		logger.InfoCF("agent", "Session pruning completed",
+			map[string]any{
+				"session_key": sessionKey,
+				"original_messages": originalCount,
+				"pruned_messages": prunedCount,
+				"removed_messages": originalCount - prunedCount,
+			})
+	}
+
+	return prunedMessages
+}
+
+// isContextOverflowError detects various forms of context overflow errors from different LLM providers
+func isContextOverflowError(errorStr string) bool {
+	lowerError := strings.ToLower(errorStr)
+
+	// Basic token/context related errors
+	if strings.Contains(lowerError, "token") ||
+	   strings.Contains(lowerError, "context") ||
+	   strings.Contains(lowerError, "length") {
+		return true
+	}
+
+	// Specific error patterns from various providers
+	patterns := []string{
+		"request_too_large",
+		"request exceeds the maximum size",
+		"maximum context length",
+		"prompt is too long:",
+		"context overflow:",
+		"413 request entity too large",
+		"request size exceeds model context window",
+		"exceeds model token limit",
+		"input length and max_tokens exceed context limit",
+		"this request exceeds the model's maximum context length",
+		"llm request rejected: max_tokens would exceed context window",
+		"input length would exceed context budget for this model",
+		"上下文过长",
+		"错误：上下文过长，请减少输入",
+		"上下文超出限制",
+		"上下文长度超出模型最大限制",
+		"超出最大上下文长度",
+		"请压缩上下文后重试",
+		"invalidparameter",
+	}
+
+	for _, pattern := range patterns {
+		if strings.Contains(lowerError, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// hasRecentToolActivity checks if recent messages contain tool activity
+func hasRecentToolActivity(history []providers.Message, recentCount int) bool {
+	// Get the most recent messages
+	startIdx := len(history) - recentCount
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	// Check recent messages for tool activity
+	for i := len(history) - 1; i >= startIdx && i >= 0; i-- {
+		msg := history[i]
+		// Look for assistant messages that triggered tools
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			return true
+		}
+		// Look for tool result messages
+		if msg.Role == "tool" {
+			return true
+		}
+	}
+	return false
 }

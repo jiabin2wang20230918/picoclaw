@@ -166,17 +166,30 @@ type SessionConfig struct {
 	IdentityLinks map[string][]string `json:"identity_links,omitempty"`
 }
 
+type CompactionConfig struct {
+	ReserveTokens       int               `json:"reserve_tokens"                      env:"PICOCLAW_AGENTS_DEFAULTS_COMPACTION_RESERVE_TOKENS"`
+	KeepRecentTokens    int               `json:"keep_recent_tokens"                  env:"PICOCLAW_AGENTS_DEFAULTS_COMPACTION_KEEP_RECENT_TOKENS"`
+	ReserveTokensFloor  int               `json:"reserve_tokens_floor"                env:"PICOCLAW_AGENTS_DEFAULTS_COMPACTION_RESERVE_TOKENS_FLOOR"`
+	MemoryFlush         MemoryFlushConfig `json:"memory_flush"`
+}
+
+type MemoryFlushConfig struct {
+	Enabled             bool `json:"enabled"                              env:"PICOCLAW_AGENTS_DEFAULTS_MEMORY_FLUSH_ENABLED"`
+	SoftThresholdTokens int  `json:"soft_threshold_tokens"                env:"PICOCLAW_AGENTS_DEFAULTS_MEMORY_FLUSH_SOFT_THRESHOLD_TOKENS"`
+}
+
 type AgentDefaults struct {
-	Workspace           string   `json:"workspace"                       env:"PICOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
-	RestrictToWorkspace bool     `json:"restrict_to_workspace"           env:"PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
-	Provider            string   `json:"provider"                        env:"PICOCLAW_AGENTS_DEFAULTS_PROVIDER"`
-	Model               string   `json:"model"                           env:"PICOCLAW_AGENTS_DEFAULTS_MODEL"`
-	ModelFallbacks      []string `json:"model_fallbacks,omitempty"`
-	ImageModel          string   `json:"image_model,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
-	ImageModelFallbacks []string `json:"image_model_fallbacks,omitempty"`
-	MaxTokens           int      `json:"max_tokens"                      env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
-	Temperature         *float64 `json:"temperature,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
-	MaxToolIterations   int      `json:"max_tool_iterations"             env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	Workspace           string            `json:"workspace"                       env:"PICOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
+	RestrictToWorkspace bool              `json:"restrict_to_workspace"           env:"PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
+	Provider            string            `json:"provider"                        env:"PICOCLAW_AGENTS_DEFAULTS_PROVIDER"`
+	Model               string            `json:"model"                           env:"PICOCLAW_AGENTS_DEFAULTS_MODEL"`
+	ModelFallbacks      []string          `json:"model_fallbacks,omitempty"`
+	ImageModel          string            `json:"image_model,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
+	ImageModelFallbacks []string          `json:"image_model_fallbacks,omitempty"`
+	MaxTokens           int               `json:"max_tokens"                      env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
+	Temperature         *float64          `json:"temperature,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
+	MaxToolIterations   int               `json:"max_tool_iterations"             env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	Compaction          CompactionConfig  `json:"compaction"`
 }
 
 type ChannelsConfig struct {
@@ -454,11 +467,17 @@ type ExecConfig struct {
 	CustomDenyPatterns []string `json:"custom_deny_patterns" env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
 }
 
+type BrowserConfig struct {
+	Enabled bool   `json:"enabled" env:"PICOCLAW_TOOLS_BROWSER_ENABLED"`
+	CDPURL  string `json:"cdp_url,omitempty" env:"PICOCLAW_TOOLS_BROWSER_CDP_URL"` // Chrome DevTools Protocol URL
+}
+
 type ToolsConfig struct {
-	Web    WebToolsConfig    `json:"web"`
-	Cron   CronToolsConfig   `json:"cron"`
-	Exec   ExecConfig        `json:"exec"`
-	Skills SkillsToolsConfig `json:"skills"`
+	Web      WebToolsConfig    `json:"web"`
+	Cron     CronToolsConfig   `json:"cron"`
+	Exec     ExecConfig        `json:"exec"`
+	Skills   SkillsToolsConfig `json:"skills"`
+	Browser  BrowserConfig     `json:"browser"`
 }
 
 type SkillsToolsConfig struct {

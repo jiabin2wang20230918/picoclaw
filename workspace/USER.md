@@ -5,7 +5,7 @@ Information about user goes here.
 ## Preferences
 
 - Communication style: (casual/formal)
-- Timezone: (your timezone)
+- Timezone: Asia/Shanghai (UTC+8)
 - Language: (your preferred language)
 
 ## Personal Information

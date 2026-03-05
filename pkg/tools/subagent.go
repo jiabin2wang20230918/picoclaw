@@ -43,13 +43,25 @@ func NewSubagentManager(
 	defaultModel, workspace string,
 	bus *bus.MessageBus,
 ) *SubagentManager {
+	// For subagents, we initialize a minimal tool registry
+	// Browser tools are not registered for subagents by default for security reasons
+	tools := NewToolRegistry()
+
+	// Register basic file system tools for subagents
+	tools.Register(NewReadFileTool(workspace, true))  // restricted to workspace
+	tools.Register(NewWriteFileTool(workspace, true))
+	tools.Register(NewListDirTool(workspace, true))
+	tools.Register(NewEditFileTool(workspace, true))
+	tools.Register(NewAppendFileTool(workspace, true))
+	// Do NOT register ExecTool by default for security
+
 	return &SubagentManager{
 		tasks:         make(map[string]*SubagentTask),
 		provider:      provider,
 		defaultModel:  defaultModel,
 		bus:           bus,
 		workspace:     workspace,
-		tools:         NewToolRegistry(),
+		tools:         tools,
 		maxIterations: 10,
 		nextID:        1,
 	}

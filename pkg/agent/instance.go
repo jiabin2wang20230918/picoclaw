@@ -31,6 +31,8 @@ type AgentInstance struct {
 	Subagents      *config.SubagentsConfig
 	SkillsFilter   []string
 	Candidates     []providers.FallbackCandidate
+	// New fields for advanced context management
+	CompactionConfig config.CompactionConfig
 }
 
 // NewAgentInstance creates an agent instance from config.
@@ -54,6 +56,17 @@ func NewAgentInstance(
 	toolsRegistry.Register(tools.NewExecToolWithConfig(workspace, restrict, cfg))
 	toolsRegistry.Register(tools.NewEditFileTool(workspace, restrict))
 	toolsRegistry.Register(tools.NewAppendFileTool(workspace, restrict))
+
+	// Register browser tools based on configuration
+	browserConfig := cfg.Tools.Browser
+	if browserConfig.Enabled {
+		toolsRegistry.Register(tools.NewBrowserNavigateTool(tools.BrowserConfig{Enabled: true}))
+		toolsRegistry.Register(tools.NewBrowserScreenshotTool(tools.BrowserConfig{Enabled: true}))
+		toolsRegistry.Register(tools.NewBrowserExecuteScriptTool(tools.BrowserConfig{Enabled: true}))
+		toolsRegistry.Register(tools.NewBrowserClickTool(tools.BrowserConfig{Enabled: true}))
+		toolsRegistry.Register(tools.NewBrowserFillInputTool(tools.BrowserConfig{Enabled: true}))
+		toolsRegistry.Register(tools.NewBrowserGetTextTool(tools.BrowserConfig{Enabled: true}))
+	}
 
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessionsManager := session.NewSessionManager(sessionsDir)
@@ -112,6 +125,7 @@ func NewAgentInstance(
 		Subagents:      subagents,
 		SkillsFilter:   skillsFilter,
 		Candidates:     candidates,
+		CompactionConfig: defaults.Compaction,
 	}
 }
 
