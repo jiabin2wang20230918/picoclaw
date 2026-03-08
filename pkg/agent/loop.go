@@ -152,6 +152,12 @@ func registerSharedTools(
 		// Spawn tool with allowlist checker
 		subagentManager := tools.NewSubagentManager(provider, agent.Model, agent.Workspace, msgBus)
 		subagentManager.SetLLMOptions(agent.MaxTokens, agent.Temperature)
+
+		// 设置默认资源限制
+		maxConcurrent := 5
+		timeout := 10 * time.Minute
+		subagentManager.SetResourceLimits(maxConcurrent, timeout)
+
 		spawnTool := tools.NewSpawnTool(subagentManager)
 		currentAgentID := agentID
 		spawnTool.SetAllowlistChecker(func(targetAgentID string) bool {
@@ -414,11 +420,56 @@ func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMe
 		originChatID = msg.ChatID
 	}
 
-	// Extract subagent result from message content
-	// Format: "Task 'label' completed.\n\nResult:\n<actual content>"
+	// Attempt to parse as structured JSON result first
 	content := msg.Content
-	if idx := strings.Index(content, "Result:\n"); idx >= 0 {
-		content = content[idx+8:] // Extract just the result part
+	var parsedResult map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &parsedResult); err == nil {
+		// This is a structured result from subagent
+		status, ok := parsedResult["status"].(string)
+		if !ok {
+			status = "unknown"
+		}
+
+		var resultContent string
+		if data, exists := parsedResult["data"]; exists {
+			switch v := data.(type) {
+			case string:
+				resultContent = v
+			case map[string]interface{}:
+				// Convert structured data back to string if needed
+				if bytes, err := json.Marshal(v); err == nil {
+					resultContent = string(bytes)
+				} else {
+					resultContent = fmt.Sprintf("%v", v)
+				}
+			default:
+				resultContent = fmt.Sprintf("%v", v)
+			}
+		} else {
+			resultContent = "No data in result"
+		}
+
+		// Format a user-friendly message based on status
+		switch status {
+		case "completed":
+			content = fmt.Sprintf("[Subagent completed] %s", resultContent)
+		case "failed":
+			errorMsg, hasError := parsedResult["error"].(string)
+			if hasError {
+				content = fmt.Sprintf("[Subagent failed] Error: %s", errorMsg)
+			} else {
+				content = fmt.Sprintf("[Subagent failed] %s", resultContent)
+			}
+		case "cancelled":
+			content = fmt.Sprintf("[Subagent cancelled] %s", resultContent)
+		default:
+			content = fmt.Sprintf("[Subagent %s] %s", status, resultContent)
+		}
+	} else {
+		// This is legacy string format, extract content as before
+		if idx := strings.Index(content, "Result:\n"); idx >= 0 {
+			content = content[idx+8:] // Extract just the result part
+		}
 	}
 
 	// Skip internal channels - only log, don't send to user
@@ -442,7 +493,7 @@ func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMe
 		SessionKey:      sessionKey,
 		Channel:         originChannel,
 		ChatID:          originChatID,
-		UserMessage:     fmt.Sprintf("[System: %s] %s", msg.SenderID, msg.Content),
+		UserMessage:     fmt.Sprintf("[System: %s] %s", msg.SenderID, content),
 		DefaultResponse: "Background task completed.",
 		EnableSummary:   false,
 		SendResponse:    true,

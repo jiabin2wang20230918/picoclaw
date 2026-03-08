@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -9,6 +10,14 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
+
+type SubagentResult struct {
+	ID       string      `json:"id"`
+	Status   string      `json:"status"`  // "success", "error", "cancelled", "running"
+	Data     interface{} `json:"data"`
+	Error    string      `json:"error,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
 
 type SubagentTask struct {
 	ID            string
@@ -36,6 +45,9 @@ type SubagentManager struct {
 	hasMaxTokens   bool
 	hasTemperature bool
 	nextID         int
+	maxConcurrent  int // 最大并发数限制
+	activeTasks    int // 当前活跃任务数
+	taskTimeout    time.Duration // 任务超时时间
 }
 
 func NewSubagentManager(
@@ -64,6 +76,9 @@ func NewSubagentManager(
 		tools:         tools,
 		maxIterations: 10,
 		nextID:        1,
+		maxConcurrent: 5,                    // 默认最多5个并发任务
+		activeTasks:   0,
+		taskTimeout:   10 * time.Minute,    // 默认10分钟超时
 	}
 }
 
@@ -75,6 +90,14 @@ func (sm *SubagentManager) SetLLMOptions(maxTokens int, temperature float64) {
 	sm.hasMaxTokens = true
 	sm.temperature = temperature
 	sm.hasTemperature = true
+}
+
+// SetResourceLimits sets the maximum concurrent tasks and timeout for subagents.
+func (sm *SubagentManager) SetResourceLimits(maxConcurrent int, timeout time.Duration) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.maxConcurrent = maxConcurrent
+	sm.taskTimeout = timeout
 }
 
 // SetTools sets the tool registry for subagent execution.
@@ -98,7 +121,12 @@ func (sm *SubagentManager) Spawn(
 	callback AsyncCallback,
 ) (string, error) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
+
+	// 检查是否达到最大并发限制
+	if sm.activeTasks >= sm.maxConcurrent {
+		sm.mu.Unlock()
+		return "", fmt.Errorf("too many concurrent subagent tasks (max: %d)", sm.maxConcurrent)
+	}
 
 	taskID := fmt.Sprintf("subagent-%d", sm.nextID)
 	sm.nextID++
@@ -110,13 +138,30 @@ func (sm *SubagentManager) Spawn(
 		AgentID:       agentID,
 		OriginChannel: originChannel,
 		OriginChatID:  originChatID,
-		Status:        "running",
+		Status:        "queued",
 		Created:       time.Now().UnixMilli(),
 	}
 	sm.tasks[taskID] = subagentTask
 
+	// 增加活跃任务计数
+	sm.activeTasks++
+	sm.mu.Unlock()
+
+	// 使用带超时的上下文
+	timeoutCtx, cancel := context.WithTimeout(ctx, sm.taskTimeout)
+
 	// Start task in background with context cancellation support
-	go sm.runTask(ctx, subagentTask, callback)
+	go func() {
+		// 在runTask结束后减少活跃任务计数
+		defer func() {
+			sm.mu.Lock()
+			sm.activeTasks--
+			sm.mu.Unlock()
+			cancel() // 清理超时上下文
+		}()
+
+		sm.runTask(timeoutCtx, subagentTask, callback)
+	}()
 
 	if label != "" {
 		return fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task), nil
@@ -151,6 +196,20 @@ After completing the task, provide a clear summary of what was done.`
 		task.Status = "cancelled"
 		task.Result = "Task cancelled before execution"
 		sm.mu.Unlock()
+
+		// Send structured cancellation result back to main agent
+		if sm.bus != nil {
+			result := SubagentResult{
+				ID:     task.ID,
+				Status: "cancelled",
+				Data:   "Task cancelled before execution",
+				Metadata: map[string]interface{}{
+					"label": task.Label,
+					"task":  task.Task,
+				},
+			}
+			sm.publishResultToMainAgent(result, task.OriginChannel, task.OriginChatID)
+		}
 		return
 	default:
 	}
@@ -202,6 +261,22 @@ After completing the task, provide a clear summary of what was done.`
 			task.Status = "cancelled"
 			task.Result = "Task cancelled during execution"
 		}
+
+		// Send structured error result back to main agent
+		if sm.bus != nil {
+			errorResult := SubagentResult{
+				ID:     task.ID,
+				Status: task.Status,
+				Data:   task.Result,
+				Error:  err.Error(),
+				Metadata: map[string]interface{}{
+					"label": task.Label,
+					"task":  task.Task,
+				},
+			}
+			sm.publishResultToMainAgent(errorResult, task.OriginChannel, task.OriginChatID)
+		}
+
 		result = &ToolResult{
 			ForLLM:  task.Result,
 			ForUser: "",
@@ -213,6 +288,22 @@ After completing the task, provide a clear summary of what was done.`
 	} else {
 		task.Status = "completed"
 		task.Result = loopResult.Content
+
+		// Send structured success result back to main agent
+		if sm.bus != nil {
+			successResult := SubagentResult{
+				ID:     task.ID,
+				Status: "completed",
+				Data:   loopResult.Content,
+				Metadata: map[string]interface{}{
+					"label":      task.Label,
+					"task":       task.Task,
+					"iterations": loopResult.Iterations,
+				},
+			}
+			sm.publishResultToMainAgent(successResult, task.OriginChannel, task.OriginChatID)
+		}
+
 		result = &ToolResult{
 			ForLLM: fmt.Sprintf(
 				"Subagent '%s' completed (iterations: %d): %s",
@@ -226,18 +317,21 @@ After completing the task, provide a clear summary of what was done.`
 			Async:   false,
 		}
 	}
+}
 
-	// Send announce message back to main agent
-	if sm.bus != nil {
-		announceContent := fmt.Sprintf("Task '%s' completed.\n\nResult:\n%s", task.Label, task.Result)
-		sm.bus.PublishInbound(bus.InboundMessage{
-			Channel:  "system",
-			SenderID: fmt.Sprintf("subagent:%s", task.ID),
-			// Format: "original_channel:original_chat_id" for routing back
-			ChatID:  fmt.Sprintf("%s:%s", task.OriginChannel, task.OriginChatID),
-			Content: announceContent,
-		})
-	}
+// publishResultToMainAgent sends structured result back to main agent
+func (sm *SubagentManager) publishResultToMainAgent(result SubagentResult, originChannel, originChatID string) {
+	// Convert result to JSON for structured transmission
+	resultJSON, _ := json.Marshal(result)
+
+	// Publish to system channel with structured data
+	sm.bus.PublishInbound(bus.InboundMessage{
+		Channel:  "system",
+		SenderID: fmt.Sprintf("subagent:%s", result.ID),
+		// Format: "original_channel:original_chat_id" for routing back
+		ChatID:  fmt.Sprintf("%s:%s", originChannel, originChatID),
+		Content: string(resultJSON),
+	})
 }
 
 func (sm *SubagentManager) GetTask(taskID string) (*SubagentTask, bool) {

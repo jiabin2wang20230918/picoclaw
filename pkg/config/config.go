@@ -171,6 +171,8 @@ type CompactionConfig struct {
 	KeepRecentTokens    int               `json:"keep_recent_tokens"                  env:"PICOCLAW_AGENTS_DEFAULTS_COMPACTION_KEEP_RECENT_TOKENS"`
 	ReserveTokensFloor  int               `json:"reserve_tokens_floor"                env:"PICOCLAW_AGENTS_DEFAULTS_COMPACTION_RESERVE_TOKENS_FLOOR"`
 	MemoryFlush         MemoryFlushConfig `json:"memory_flush"`
+	MaxConcurrentSubagents int            `json:"max_concurrent_subagents,omitempty"  env:"PICOCLAW_AGENTS_DEFAULTS_MAX_CONCURRENT_SUBAGENTS"`
+	SubagentTimeoutMinutes int            `json:"subagent_timeout_minutes,omitempty"  env:"PICOCLAW_AGENTS_DEFAULTS_SUBAGENT_TIMEOUT_MINUTES"`
 }
 
 type MemoryFlushConfig struct {
