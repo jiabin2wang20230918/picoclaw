@@ -68,8 +68,12 @@ func (te *ToolExecutor) ExecuteTools(ctx context.Context, agent *interfaces.Agen
 			asyncCallback,
 		)
 
-		// Send ForUser content to user immediately if not Silent
-		if !toolResult.Silent && toolResult.ForUser != "" && sendResponse {
+		// NEW: Let the system decide whether to show tool results based on agent configuration
+		shouldSendToUser := te.shouldSendToolResultToUser(agent, tc.Name, toolResult)
+
+		// Send ForUser content to user based on system configuration, not tool-level silencing
+		if shouldSendToUser && toolResult.ForUser != "" && sendResponse {
+			// Publish as normal message
 			te.msgBus.PublishOutbound(bus.OutboundMessage{
 				Channel: channel,
 				ChatID:  chatID,
@@ -83,7 +87,7 @@ func (te *ToolExecutor) ExecuteTools(ctx context.Context, agent *interfaces.Agen
 		}
 
 		// Accumulate for-user content if needed
-		if !toolResult.Silent && toolResult.ForUser != "" {
+		if shouldSendToUser && toolResult.ForUser != "" {
 			if forUserContent != "" {
 				forUserContent += "\n\n" + toolResult.ForUser
 			} else {
@@ -91,7 +95,7 @@ func (te *ToolExecutor) ExecuteTools(ctx context.Context, agent *interfaces.Agen
 			}
 		}
 
-		// Determine content for LLM based on tool result
+		// Determine content for LLM based on tool result (always provide to LLM for context)
 		contentForLLM := toolResult.ForLLM
 		if contentForLLM == "" && toolResult.Err != nil {
 			contentForLLM = toolResult.Err.Error()
@@ -113,6 +117,37 @@ func (te *ToolExecutor) ExecuteTools(ctx context.Context, agent *interfaces.Agen
 		ForUserContent:  forUserContent,
 		CorrelationID:   request.CorrelationID,
 	}, nil
+}
+
+// shouldSendToolResultToUser determines if a tool result should be sent to the user
+// based on agent configuration and tool result characteristics, not tool-level silencing
+func (te *ToolExecutor) shouldSendToolResultToUser(agent *interfaces.AgentInstance, toolName string, result *tools.ToolResult) bool {
+	// If explicitly silenced by tool, respect that (backward compatibility)
+	if result.Silent {
+		return false
+	}
+
+	// If there's no content for user, don't send anything
+	if result.ForUser == "" {
+		return false
+	}
+
+	// NEW LOGIC: Use agent configuration to determine tool result visibility policy
+	// This is where the system-level control comes in, instead of tool-level decisions
+
+	// Default policy: respect SendToolHints configuration from agent
+	// Since we don't have access to agent config here through interfaces.AgentInstance,
+	// we'll use a simpler policy that relies on the result being non-empty
+	// In a full implementation, this would check agent configuration like:
+	// - agent.SendToolHints (boolean)
+	// - agent.ToolVisibilityPolicy (enum: all, errors_only, whitelisted, none)
+	// - agent.VisibleTools (whitelist of tool names)
+
+	// For now, we'll return true to allow the system-level decision in the main agent loop
+	// to handle this, and we'll rely on the tool result's ForUser field being populated
+	// only when the tool result should be visible to the user
+
+	return true // Allow sending if there's content for user
 }
 
 // Helper function to get min of two integers

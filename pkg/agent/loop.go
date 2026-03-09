@@ -56,7 +56,6 @@ type processOptions struct {
 	UserMessage     string // User message content (may include prefix)
 	DefaultResponse string // Response when LLM returns empty
 	EnableSummary   bool   // Whether to trigger summarization
-	SendResponse    bool   // Whether to send response via bus
 	NoHistory       bool   // If true, don't load session history (for heartbeat)
 }
 
@@ -91,7 +90,21 @@ func (al *AgentLoop) progressCallbackFunc(channel, chatID string) ProgressCallba
 				Progress:    &progress,
 				Metadata:    stringMetadata,
 			}
+			logger.DebugCF("agent", "Publishing progress message", map[string]any{
+				"channel": channel,
+				"chat_id": chatID,
+				"content": message,
+				"progress": progress,
+				"metadata": stringMetadata,
+			})
 			al.bus.PublishOutbound(progressMsg)
+		} else {
+			logger.DebugCF("agent", "Progress sending disabled, skipping progress message", map[string]any{
+				"channel": channel,
+				"chat_id": chatID,
+				"content": message,
+				"progress": progress,
+			})
 		}
 		return nil
 	}
@@ -369,7 +382,6 @@ func (al *AgentLoop) ProcessHeartbeat(ctx context.Context, content, channel, cha
 		UserMessage:     content,
 		DefaultResponse: "I've completed processing but have no response to give.",
 		EnableSummary:   false,
-		SendResponse:    false,
 		NoHistory:       true, // Don't load session history for heartbeat
 	})
 }
@@ -415,6 +427,26 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		agent = al.registry.GetDefaultAgent()
 	}
 
+	// Send initial progress feedback to let user know their request is being processed
+	if al.cfg.Agents.Defaults.SendProgress { // Use config instead of agent property
+		initialProgressMsg := bus.OutboundMessage{
+			Channel:     msg.Channel,
+			ChatID:      msg.ChatID,
+			Content:     "⏳ Received your request, starting to process...",
+			MessageType: bus.MessageTypeProgress,
+			Progress:    &[]float64{0.0}[0], // 0% at start
+			Metadata: map[string]string{
+				"phase": "initial_processing",
+			},
+		}
+		logger.DebugCF("agent", "Publishing initial progress message", map[string]any{
+			"channel": msg.Channel,
+			"chat_id": msg.ChatID,
+			"content": initialProgressMsg.Content,
+		})
+		al.bus.PublishOutbound(initialProgressMsg)
+	}
+
 	// Use routed session key, but honor pre-set agent-scoped keys (for ProcessDirect/cron)
 	sessionKey := route.SessionKey
 	if msg.SessionKey != "" && strings.HasPrefix(msg.SessionKey, "agent:") {
@@ -435,7 +467,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		UserMessage:     msg.Content,
 		DefaultResponse: "I've completed processing but have no response to give.",
 		EnableSummary:   true,
-		SendResponse:    false,
+		NoHistory:       false,
 	})
 }
 
@@ -536,7 +568,7 @@ func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMe
 		UserMessage:     fmt.Sprintf("[System: %s] %s", msg.SenderID, content),
 		DefaultResponse: "Background task completed.",
 		EnableSummary:   false,
-		SendResponse:    true,
+		NoHistory:       false,
 	})
 }
 
@@ -607,14 +639,9 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 		al.maybeSummarize(agent, opts.SessionKey, opts.Channel, opts.ChatID)
 	}
 
-	// 8. Optional: send response via bus
-	if opts.SendResponse {
-		al.bus.PublishOutbound(bus.OutboundMessage{
-			Channel: opts.Channel,
-			ChatID:  opts.ChatID,
-			Content: finalContent,
-		})
-	}
+	// 8. Optional: send response via bus - now always handled by caller
+	// Previously used opts.SendResponse to control direct sending from here,
+	// but now the caller (processMessage) handles response sending to avoid duplication.
 
 	// 9. Log response
 	responsePreview := utils.Truncate(finalContent, 120)
@@ -779,6 +806,26 @@ func (al *AgentLoop) runLLMIteration(
 			normalizedToolCalls = append(normalizedToolCalls, providers.NormalizeToolCall(tc))
 		}
 
+		// Send response content as progress feedback if present and enabled
+		if response.Content != "" && al.cfg.Agents.Defaults.SendProgress && progressCallback != nil {
+			// Extract and send thinking content (similar to nanobot's _strip_think approach)
+			// Remove any potential thinking blocks that might be embedded in content
+			thoughtContent := strings.TrimSpace(response.Content)
+
+			// Only send if content seems like thinking/intermediate result rather than empty/boilerplate
+			if len(thoughtContent) > 0 {
+				currentProgress := float64(iteration-1) / float64(agent.MaxIterations) * 100.0
+				err := progressCallback(currentProgress, fmt.Sprintf("💭 Thinking: %s", utils.Truncate(thoughtContent, 100)), map[string]interface{}{
+					"phase":     "llm_thinking",
+					"iteration": iteration,
+					"has_tools": len(normalizedToolCalls) > 0,
+				})
+				if err != nil {
+					logger.WarnCF("agent", "Failed to send thinking progress", map[string]any{"error": err})
+				}
+			}
+		}
+
 		// Log tool calls
 		toolNames := make([]string, 0, len(normalizedToolCalls))
 		for _, tc := range normalizedToolCalls {
@@ -858,7 +905,18 @@ func (al *AgentLoop) runLLMIteration(
 			// Send tool hint if enabled and it's not a silent tool
 			if al.cfg.Agents.Defaults.SendToolHints && progressCallback != nil {
 				toolHint := fmt.Sprintf("🔧 Executing tool: %s", tc.Name)
-				err := progressCallback(0, toolHint, map[string]interface{}{
+				// Calculate more granular progress considering tool execution within iteration
+				// Tools executed mid-iteration, so reflect their execution in the progress
+				currentProgress := float64(iteration-1) / float64(agent.MaxIterations) * 100.0
+				// Add fractional progress for tools within current iteration
+				toolIndex := float64(i) // Current tool index in the iteration
+				toolCount := float64(len(normalizedToolCalls))
+				if toolCount > 0 {
+					fractionalProgress := toolIndex / toolCount * (100.0 / float64(agent.MaxIterations))
+					currentProgress += fractionalProgress
+				}
+
+				err := progressCallback(currentProgress, toolHint, map[string]interface{}{
 					"tool_name":     tc.Name,
 					"phase":         "tool_execution",
 					"iteration":     iteration,
@@ -897,7 +955,17 @@ func (al *AgentLoop) runLLMIteration(
 			// Send tool result progress notification if enabled
 			if al.cfg.Agents.Defaults.SendToolHints && progressCallback != nil {
 				toolResultHint := fmt.Sprintf("✅ Tool '%s' completed", tc.Name)
-				err := progressCallback(0, toolResultHint, map[string]interface{}{
+				// Calculate more granular progress considering tool execution within iteration
+				currentProgress := float64(iteration-1) / float64(agent.MaxIterations) * 100.0
+				// Add fractional progress for tools within current iteration
+				toolIndex := float64(i+1) // Use i+1 since the tool is now completed
+				toolCount := float64(len(normalizedToolCalls))
+				if toolCount > 0 {
+					fractionalProgress := toolIndex / toolCount * (100.0 / float64(agent.MaxIterations))
+					currentProgress += fractionalProgress
+				}
+
+				err := progressCallback(currentProgress, toolResultHint, map[string]interface{}{
 					"tool_name":     tc.Name,
 					"phase":         "tool_completed",
 					"iteration":     iteration,
@@ -908,18 +976,90 @@ func (al *AgentLoop) runLLMIteration(
 				}
 			}
 
-			// Send ForUser content to user immediately if not Silent
-			if !toolResult.Silent && toolResult.ForUser != "" && opts.SendResponse {
+			// NEW: Determine if tool result should be sent to user based on system configuration,
+			// not just on tool-level Silent flag. This moves the decision logic to system level.
+			shouldSendToUser := al.shouldSendToolResultToUser(agent, tc.Name, toolResult)
+
+			// Send tool result progress notification if enabled
+			if al.cfg.Agents.Defaults.SendToolHints && progressCallback != nil {
+				var toolResultHint string
+				if shouldSendToUser && toolResult.ForUser != "" {
+					toolResultHint = fmt.Sprintf("✅ Tool '%s' completed: %s", tc.Name, toolResult.ForUser[:min(len(toolResult.ForUser), 50)])
+					if len(toolResult.ForUser) > 50 {
+						toolResultHint += "..."
+					}
+				} else {
+					toolResultHint = fmt.Sprintf("✅ Tool '%s' completed (result not shown to user)", tc.Name)
+				}
+
+				// Calculate more granular progress considering tool execution within iteration
+				currentProgress := float64(iteration-1) / float64(agent.MaxIterations) * 100.0
+				// Add fractional progress for tools within current iteration
+				toolIndex := float64(i+1) // Use i+1 since the tool is now completed
+				toolCount := float64(len(normalizedToolCalls))
+				if toolCount > 0 {
+					fractionalProgress := toolIndex / toolCount * (100.0 / float64(agent.MaxIterations))
+					currentProgress += fractionalProgress
+				}
+
+				err := progressCallback(currentProgress, toolResultHint, map[string]interface{}{
+					"tool_name":     tc.Name,
+					"tool_args":     tc.Arguments,
+					"tool_result_len": len(toolResult.ForLLM),
+					"sent_to_user":  shouldSendToUser,
+					"iteration":     iteration,
+					"phase":         "tool_completed",
+					"is_completed":  true,
+				})
+				logger.DebugCF("agent", "Published tool result hint", map[string]any{
+					"tool":          tc.Name,
+					"progress":      currentProgress,
+					"hint":          toolResultHint,
+					"sent_to_user":  shouldSendToUser,
+					"iteration":     iteration,
+					"phase":         "tool_completed",
+					"is_completed":  true,
+				})
+				if err != nil {
+					logger.WarnCF("agent", "Failed to send tool result hint", map[string]any{"error": err})
+				}
+			}
+
+			// NEW: Send ForUser content to user based on system-level configuration
+			// rather than tool-level silencing alone
+			if shouldSendToUser && toolResult.ForUser != "" {
+				// Send as regular message (existing behavior)
 				al.bus.PublishOutbound(bus.OutboundMessage{
 					Channel: opts.Channel,
 					ChatID:  opts.ChatID,
 					Content: toolResult.ForUser,
 				})
+
+				// ALSO send as progress message for intermediate results display
+				progressContent := fmt.Sprintf("🔧 Tool '%s' completed: %s", tc.Name,
+					utils.Truncate(toolResult.ForUser, 100)) // Truncate for progress display
+				al.bus.PublishOutbound(bus.OutboundMessage{
+					Channel:     opts.Channel,
+					ChatID:      opts.ChatID,
+					Content:     progressContent,
+					MessageType: bus.MessageTypeProgress,
+				})
+
 				logger.DebugCF("agent", "Sent tool result to user",
 					map[string]any{
 						"tool":        tc.Name,
 						"content_len": len(toolResult.ForUser),
 					})
+			}
+
+			// Additionally, if progress callback is available, send intermediate tool result
+			if al.cfg.Agents.Defaults.SendToolHints && progressCallback != nil && toolResult.ForUser != "" {
+				intermediateMsg := fmt.Sprintf("🔄 Running tool: %s - %s", tc.Name, utils.Truncate(toolResult.ForUser, 50))
+				_ = progressCallback(float64(iteration-1)/float64(agent.MaxIterations)*100.0, intermediateMsg, map[string]interface{}{
+					"tool_name":    tc.Name,
+					"phase":        "tool_execution_intermediate",
+					"iteration":    iteration,
+				})
 			}
 
 			// Determine content for LLM based on tool result
@@ -955,6 +1095,29 @@ func (al *AgentLoop) runLLMIteration(
 			// Continue to next iteration to process the steering message
 			continue
 		}
+	}
+
+	// Check if we've reached the maximum iterations without completion
+	if iteration >= agent.MaxIterations && finalContent == "" {
+		// Send a final progress update indicating max iterations reached
+		if progressCallback != nil {
+			err := progressCallback(100.0, fmt.Sprintf("Max iterations reached (%d). Need further input to continue.", agent.MaxIterations), map[string]interface{}{
+				"iteration":     iteration,
+				"max_iter":      agent.MaxIterations,
+				"phase":         "max_iterations_reached",
+				"is_completed":  false,
+			})
+			if err != nil {
+				logger.WarnCF("agent", "Failed to send max iterations progress update", map[string]any{"error": err})
+			}
+		}
+
+		// Send a completion notification that indicates the agent has paused due to max iterations
+		al.bus.PublishOutbound(bus.OutboundMessage{
+			Channel: opts.Channel,
+			ChatID:  opts.ChatID,
+			Content: fmt.Sprintf("I've reached the maximum number of processing iterations (%d). I may need additional input to continue. Would you like me to continue working on this task?", agent.MaxIterations),
+		})
 	}
 
 	return finalContent, iteration, nil
@@ -1887,4 +2050,33 @@ func hasRecentToolActivity(history []providers.Message, recentCount int) bool {
 		}
 	}
 	return false
+}
+
+// shouldSendToolResultToUser determines if a tool result should be sent to the user
+// based on agent configuration and tool result characteristics, moving the decision
+// from tool-level to system-level control
+func (al *AgentLoop) shouldSendToolResultToUser(agent *AgentInstance, toolName string, result *tools.ToolResult) bool {
+	// If explicitly silenced by tool, respect that (for backward compatibility)
+	if result.Silent {
+		return false
+	}
+
+	// If there's no content for user, don't send anything
+	if result.ForUser == "" {
+		return false
+	}
+
+	// NEW LOGIC: Use agent configuration to determine tool result visibility policy
+	// This centralizes the decision-making process in the system rather than letting each tool decide
+
+	// Check agent's tool hints configuration (this is the system-level control)
+	// If SendToolHints is disabled, don't show results to user
+	if !al.cfg.Agents.Defaults.SendToolHints {
+		return false
+	}
+
+	// If SendToolHints is enabled, then allow results to be sent to user
+	// (Additional filtering could be implemented here based on tool types or other policies)
+
+	return true
 }
