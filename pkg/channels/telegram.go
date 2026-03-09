@@ -193,6 +193,76 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) err
 	return nil
 }
 
+// SendProgress sends progress updates to Telegram with typing simulation for better UX
+func (c *TelegramChannel) SendProgress(ctx context.Context, msg bus.OutboundMessage) error {
+	if !c.IsRunning() {
+		return fmt.Errorf("telegram bot not running")
+	}
+
+	chatID, err := parseChatID(msg.ChatID)
+	if err != nil {
+		return fmt.Errorf("invalid chat ID: %w", err)
+	}
+
+	// Send typing action first for better UX
+	// Create a channel to signal when to stop the typing action
+	done := make(chan bool, 1)
+	go func() {
+		ticker := time.NewTicker(4 * time.Second) // Telegram allows typing for up to 5 seconds
+		defer ticker.Stop()
+
+		sendAction := func() {
+			_ = c.bot.SendChatAction(context.Background(), &telego.SendChatActionParams{
+				ChatID: tu.ID(chatID),
+				Action: telego.ChatActionTyping,
+			})
+		}
+
+		// Initial action
+		sendAction()
+
+		for {
+			select {
+			case <-done:
+				return // Stop the typing indicator
+			case <-ticker.C:
+				sendAction() // Refresh the typing indicator
+			}
+		}
+	}()
+
+	// Prepare content based on progress information
+	var content string
+	if msg.Progress != nil {
+		if msg.Content != "" {
+			content = fmt.Sprintf("⏳ %s (%.1f%%)", msg.Content, *msg.Progress)
+		} else {
+			content = fmt.Sprintf("⏳ Processing... (%.1f%%)", *msg.Progress)
+		}
+	} else {
+		content = fmt.Sprintf("⏳ %s", msg.Content)
+	}
+
+	// Send the progress message
+	tgMsg := tu.Message(tu.ID(chatID), markdownToTelegramHTML(content))
+	tgMsg.ParseMode = telego.ModeHTML
+
+	_, err = c.bot.SendMessage(ctx, tgMsg)
+	if err != nil {
+		logger.ErrorCF("telegram", "Failed to send progress update, falling back to plain text", map[string]any{
+			"error": err.Error(),
+		})
+		tgMsg.ParseMode = ""
+		_, err = c.bot.SendMessage(ctx, tgMsg)
+	}
+
+	// Stop the typing indicator after a delay
+	time.Sleep(2 * time.Second)
+	done <- true
+
+	return err
+}
+
 func (c *TelegramChannel) handleMessage(ctx context.Context, message *telego.Message) error {
 	if message == nil {
 		return fmt.Errorf("message is nil")

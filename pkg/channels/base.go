@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
@@ -12,6 +13,7 @@ type Channel interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Send(ctx context.Context, msg bus.OutboundMessage) error
+	SendProgress(ctx context.Context, msg bus.OutboundMessage) error  // Send progress updates to the channel
 	IsRunning() bool
 	IsAllowed(senderID string) bool
 }
@@ -100,4 +102,12 @@ func (c *BaseChannel) HandleMessage(senderID, chatID, content string, media []st
 
 func (c *BaseChannel) setRunning(running bool) {
 	c.running = running
+}
+
+// SendProgress sends progress updates to the channel - default implementation just calls Send
+// Note: This method should be overridden by specific channel implementations for better UX
+func (c *BaseChannel) SendProgress(ctx context.Context, msg bus.OutboundMessage) error {
+	// For now, just call Send, but specific channels can override this for better progress UX
+	// like typing indicators or progress bars
+	return fmt.Errorf("SendProgress not implemented for this channel")
 }

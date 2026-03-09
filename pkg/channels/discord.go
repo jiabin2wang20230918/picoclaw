@@ -137,6 +137,52 @@ func (c *DiscordChannel) Send(ctx context.Context, msg bus.OutboundMessage) erro
 	return nil
 }
 
+// SendProgress sends progress updates to Discord with typing simulation for better UX
+func (c *DiscordChannel) SendProgress(ctx context.Context, msg bus.OutboundMessage) error {
+	if !c.IsRunning() {
+		return fmt.Errorf("discord bot not running")
+	}
+
+	channelID := msg.ChatID
+	if channelID == "" {
+		return fmt.Errorf("channel ID is empty")
+	}
+
+	// Start typing indicator for better UX during progress updates
+	c.startTyping(channelID)
+
+	// Prepare progress content
+	var content string
+	if msg.Progress != nil {
+		if msg.Content != "" {
+			content = fmt.Sprintf("⏳ %s (%.1f%%)", msg.Content, *msg.Progress)
+		} else {
+			content = fmt.Sprintf("⏳ Processing... (%.1f%%)", *msg.Progress)
+		}
+	} else {
+		content = fmt.Sprintf("⏳ %s", msg.Content)
+	}
+
+	// Stop typing before sending the message to avoid conflicts
+	c.stopTyping(channelID)
+
+	// Send progress message
+	runes := []rune(content)
+	if len(runes) == 0 {
+		return nil
+	}
+
+	chunks := utils.SplitMessage(content, 2000) // Split messages into chunks, Discord length limit: 2000 chars
+
+	for _, chunk := range chunks {
+		if err := c.sendChunk(ctx, channelID, chunk); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (c *DiscordChannel) sendChunk(ctx context.Context, channelID, content string) error {
 	// Use the passed ctx for timeout control
 	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)

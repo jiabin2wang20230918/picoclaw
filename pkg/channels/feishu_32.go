@@ -36,3 +36,8 @@ func (c *FeishuChannel) Stop(ctx context.Context) error {
 func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	return errors.New("feishu channel is not supported on 32-bit architectures")
 }
+
+// SendProgress is a stub method to satisfy the Channel interface
+func (c *FeishuChannel) SendProgress(ctx context.Context, msg bus.OutboundMessage) error {
+	return errors.New("feishu channel is not supported on 32-bit architectures")
+}

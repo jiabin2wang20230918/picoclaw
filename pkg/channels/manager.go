@@ -298,9 +298,20 @@ func (m *Manager) dispatchOutbound(ctx context.Context) {
 				continue
 			}
 
-			if err := channel.Send(ctx, msg); err != nil {
+			var err error
+			// Check message type and send appropriately
+			if msg.MessageType == bus.MessageTypeProgress {
+				// Use progress-specific method if available
+				err = channel.SendProgress(ctx, msg)
+			} else {
+				// Use regular send method
+				err = channel.Send(ctx, msg)
+			}
+
+			if err != nil {
 				logger.ErrorCF("channels", "Error sending message to channel", map[string]any{
 					"channel": msg.Channel,
+					"type":    msg.MessageType,
 					"error":   err.Error(),
 				})
 			}

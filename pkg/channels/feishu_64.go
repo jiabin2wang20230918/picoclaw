@@ -128,6 +128,40 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) error
 	}
 }
 
+// SendProgress sends progress updates to Feishu channel
+func (c *FeishuChannel) SendProgress(ctx context.Context, msg bus.OutboundMessage) error {
+	if !c.IsRunning() {
+		return fmt.Errorf("feishu channel not running")
+	}
+
+	if msg.ChatID == "" {
+		return fmt.Errorf("chat ID is empty for progress message")
+	}
+
+	// Prepare progress content
+	var content string
+	if msg.Progress != nil {
+		if msg.Content != "" {
+			content = fmt.Sprintf("⏳ %s (%.1f%%)", msg.Content, *msg.Progress)
+		} else {
+			content = fmt.Sprintf("⏳ Processing... (%.1f%%)", *msg.Progress)
+		}
+	} else {
+		content = fmt.Sprintf("⏳ %s", msg.Content)
+	}
+
+	// Create a new message with progress content
+	progressMsg := bus.OutboundMessage{
+		Channel:     msg.Channel,
+		ChatID:      msg.ChatID,
+		Content:     content,
+		Attachments: msg.Attachments,
+	}
+
+	// Send as regular text message
+	return c.sendTextMessage(ctx, progressMsg)
+}
+
 // sendTextMessage 发送普通文本消息
 func (c *FeishuChannel) sendTextMessage(ctx context.Context, msg bus.OutboundMessage) error {
 	payload, err := json.Marshal(map[string]string{"text": msg.Content})

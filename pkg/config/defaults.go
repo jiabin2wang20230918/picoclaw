@@ -17,6 +17,9 @@ func DefaultConfig() *Config {
 				MaxTokens:           8192,
 				Temperature:         nil, // nil means use provider default
 				MaxToolIterations:   20,
+				SendProgress:        true,
+				SendToolHints:       false,
+				StreamingEnabled:    false,
 				Compaction: CompactionConfig{
 					ReserveTokens:      16384,
 					KeepRecentTokens:   20000,
@@ -333,5 +336,6 @@ func DefaultConfig() *Config {
 			Enabled:    false,
 			MonitorUSB: true,
 		},
+		Memory: DefaultTreeMemoryConfig(),
 	}
 }

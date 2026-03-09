@@ -45,6 +45,9 @@ type AgentLoop struct {
 	useModular     bool // Feature flag to control which system is used
 }
 
+// ProgressCallback is a function type for reporting progress during agent execution
+type ProgressCallback func(progress float64, message string, metadata map[string]interface{}) error
+
 // processOptions configures how a message is processed
 type processOptions struct {
 	SessionKey      string // Session identifier for history/context
@@ -55,6 +58,43 @@ type processOptions struct {
 	EnableSummary   bool   // Whether to trigger summarization
 	SendResponse    bool   // Whether to send response via bus
 	NoHistory       bool   // If true, don't load session history (for heartbeat)
+}
+
+// progressCallbackFunc wraps the progress callback to publish progress messages via the bus
+func (al *AgentLoop) progressCallbackFunc(channel, chatID string) ProgressCallback {
+	return func(progress float64, message string, metadata map[string]interface{}) error {
+		if al.cfg.Agents.Defaults.SendProgress { // Only send if progress sending is enabled
+			// Convert metadata map[string]interface{} to map[string]string
+			stringMetadata := make(map[string]string)
+			for k, v := range metadata {
+				if v != nil {
+					switch val := v.(type) {
+					case string:
+						stringMetadata[k] = val
+					case int:
+						stringMetadata[k] = fmt.Sprintf("%d", val)
+					case float64:
+						stringMetadata[k] = fmt.Sprintf("%g", val)
+					case bool:
+						stringMetadata[k] = fmt.Sprintf("%t", val)
+					default:
+						stringMetadata[k] = fmt.Sprintf("%v", val)
+					}
+				}
+			}
+
+			progressMsg := bus.OutboundMessage{
+				Channel:     channel,
+				ChatID:      chatID,
+				Content:     message,
+				MessageType: bus.MessageTypeProgress,
+				Progress:    &progress,
+				Metadata:    stringMetadata,
+			}
+			al.bus.PublishOutbound(progressMsg)
+		}
+		return nil
+	}
 }
 
 func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers.LLMProvider) *AgentLoop {
@@ -536,7 +576,8 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 	agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
 
 	// 4. Run LLM iteration loop
-	finalContent, iteration, err := al.runLLMIteration(ctx, agent, messages, opts)
+	progressCallback := al.progressCallbackFunc(opts.Channel, opts.ChatID)
+	finalContent, iteration, err := al.runLLMIteration(ctx, agent, messages, opts, progressCallback)
 	if err != nil {
 		return "", err
 	}
@@ -594,6 +635,7 @@ func (al *AgentLoop) runLLMIteration(
 	agent *AgentInstance,
 	messages []providers.Message,
 	opts processOptions,
+	progressCallback ProgressCallback,
 ) (string, int, error) {
 	iteration := 0
 	var finalContent string
@@ -601,12 +643,19 @@ func (al *AgentLoop) runLLMIteration(
 	for iteration < agent.MaxIterations {
 		iteration++
 
-		logger.DebugCF("agent", "LLM iteration",
-			map[string]any{
-				"agent_id":  agent.ID,
-				"iteration": iteration,
-				"max":       agent.MaxIterations,
+		// Send progress update at the beginning of each iteration
+		if progressCallback != nil {
+			progress := float64(iteration) / float64(agent.MaxIterations) * 100.0
+			err := progressCallback(progress, fmt.Sprintf("Processing iteration %d/%d", iteration, agent.MaxIterations), map[string]interface{}{
+				"iteration":     iteration,
+				"max_iter":      agent.MaxIterations,
+				"phase":         "llm_processing",
+				"is_completed":  false,
 			})
+			if err != nil {
+				logger.WarnCF("agent", "Failed to send progress update", map[string]any{"error": err})
+			}
+		}
 
 		// Build tool definitions
 		providerToolDefs := agent.Tools.ToProviderDefs()
@@ -806,6 +855,20 @@ func (al *AgentLoop) runLLMIteration(
 					"iteration": iteration,
 				})
 
+			// Send tool hint if enabled and it's not a silent tool
+			if al.cfg.Agents.Defaults.SendToolHints && progressCallback != nil {
+				toolHint := fmt.Sprintf("🔧 Executing tool: %s", tc.Name)
+				err := progressCallback(0, toolHint, map[string]interface{}{
+					"tool_name":     tc.Name,
+					"phase":         "tool_execution",
+					"iteration":     iteration,
+					"is_completed":  false,
+				})
+				if err != nil {
+					logger.WarnCF("agent", "Failed to send tool hint", map[string]any{"error": err})
+				}
+			}
+
 			// Create async callback for tools that implement AsyncTool
 			// NOTE: Following openclaw's design, async tools do NOT send results directly to users.
 			// Instead, they notify the agent via PublishInbound, and the agent decides
@@ -830,6 +893,20 @@ func (al *AgentLoop) runLLMIteration(
 				opts.ChatID,
 				asyncCallback,
 			)
+
+			// Send tool result progress notification if enabled
+			if al.cfg.Agents.Defaults.SendToolHints && progressCallback != nil {
+				toolResultHint := fmt.Sprintf("✅ Tool '%s' completed", tc.Name)
+				err := progressCallback(0, toolResultHint, map[string]interface{}{
+					"tool_name":     tc.Name,
+					"phase":         "tool_completed",
+					"iteration":     iteration,
+					"is_completed":  true,
+				})
+				if err != nil {
+					logger.WarnCF("agent", "Failed to send tool result hint", map[string]any{"error": err})
+				}
+			}
 
 			// Send ForUser content to user immediately if not Silent
 			if !toolResult.Silent && toolResult.ForUser != "" && opts.SendResponse {

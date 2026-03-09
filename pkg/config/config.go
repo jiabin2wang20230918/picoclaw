@@ -47,16 +47,17 @@ func (f *FlexibleStringSlice) UnmarshalJSON(data []byte) error {
 }
 
 type Config struct {
-	Agents    AgentsConfig    `json:"agents"`
-	Bindings  []AgentBinding  `json:"bindings,omitempty"`
-	Session   SessionConfig   `json:"session,omitempty"`
-	Channels  ChannelsConfig  `json:"channels"`
-	Providers ProvidersConfig `json:"providers,omitempty"`
-	ModelList []ModelConfig   `json:"model_list"` // New model-centric provider configuration
-	Gateway   GatewayConfig   `json:"gateway"`
-	Tools     ToolsConfig     `json:"tools"`
-	Heartbeat HeartbeatConfig `json:"heartbeat"`
-	Devices   DevicesConfig   `json:"devices"`
+	Agents    AgentsConfig      `json:"agents"`
+	Bindings  []AgentBinding    `json:"bindings,omitempty"`
+	Session   SessionConfig     `json:"session,omitempty"`
+	Channels  ChannelsConfig    `json:"channels"`
+	Providers ProvidersConfig   `json:"providers,omitempty"`
+	ModelList []ModelConfig     `json:"model_list"` // New model-centric provider configuration
+	Gateway   GatewayConfig     `json:"gateway"`
+	Tools     ToolsConfig       `json:"tools"`
+	Heartbeat HeartbeatConfig   `json:"heartbeat"`
+	Devices   DevicesConfig     `json:"devices"`
+	Memory    TreeMemoryConfig  `json:"memory,omitempty"` // Tree-based memory configuration
 }
 
 // MarshalJSON implements custom JSON marshaling for Config
@@ -192,6 +193,9 @@ type AgentDefaults struct {
 	Temperature         *float64          `json:"temperature,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations   int               `json:"max_tool_iterations"             env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
 	Compaction          CompactionConfig  `json:"compaction"`
+	SendProgress        bool              `json:"send_progress"                   env:"PICOCLAW_AGENTS_DEFAULTS_SEND_PROGRESS"`
+	SendToolHints       bool              `json:"send_tool_hints"                 env:"PICOCLAW_AGENTS_DEFAULTS_SEND_TOOL_HINTS"`
+	StreamingEnabled    bool              `json:"streaming_enabled"               env:"PICOCLAW_AGENTS_DEFAULTS_STREAMING_ENABLED"`
 }
 
 type ChannelsConfig struct {
@@ -507,6 +511,43 @@ type ClawHubRegistryConfig struct {
 	Timeout         int    `json:"timeout"           env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"`
 	MaxZipSize      int    `json:"max_zip_size"      env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"`
 	MaxResponseSize int    `json:"max_response_size" env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"`
+}
+
+// TreeMemoryConfig holds configuration for the tree-based memory system
+type TreeMemoryConfig struct {
+	// Enable tree-based memory system
+	Enabled bool `json:"enabled" env:"PICCLAW_TREE_MEMORY_ENABLED"`
+
+	// Maximum depth for tree memory
+	MaxDepth int `json:"max_depth" env:"PICCLAW_TREE_MEMORY_MAX_DEPTH"`
+
+	// Retention policy in days
+	RetentionDays int `json:"retention_days" env:"PICCLAW_TREE_MEMORY_RETENTION_DAYS"`
+
+	// Semantic search threshold (0.0-1.0)
+	SemanticThreshold float64 `json:"semantic_threshold" env:"PICCLAW_TREE_MEMORY_SEMANTIC_THRESHOLD"`
+
+	// Maximum results to return from memory search
+	MaxSearchResults int `json:"max_search_results" env:"PICCLAW_TREE_MEMORY_MAX_SEARCH_RESULTS"`
+
+	// Whether to enable knowledge extraction
+	EnableKnowledgeExtraction bool `json:"enable_knowledge_extraction" env:"PICCLAW_TREE_MEMORY_ENABLE_KNOWLEDGE_EXTRACTION"`
+
+	// Whether to enable semantic indexing
+	EnableSemanticIndexing bool `json:"enable_semantic_indexing" env:"PICCLAW_TREE_MEMORY_ENABLE_SEMANTIC_INDEXING"`
+}
+
+// DefaultTreeMemoryConfig returns default configuration for tree memory
+func DefaultTreeMemoryConfig() TreeMemoryConfig {
+	return TreeMemoryConfig{
+		Enabled:                   true,
+		MaxDepth:                  10,
+		RetentionDays:             365, // Keep memories for a year
+		SemanticThreshold:         0.6, // Reasonable threshold for similarity
+		MaxSearchResults:          10,
+		EnableKnowledgeExtraction: true,
+		EnableSemanticIndexing:    true,
+	}
 }
 
 func LoadConfig(path string) (*Config, error) {
