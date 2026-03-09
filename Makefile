@@ -136,6 +136,22 @@ vet:
 test:
 	@$(GO) test ./...
 
+## test-tree-memory: Test the tree memory system
+test-tree-memory:
+	@$(GO) test ./pkg/agent/memory/tree/...
+
+## demo-tree-memory: Run tree memory demonstration
+demo-tree-memory:
+	@$(GO) run examples/tree_memory_demo.go
+
+## demo-lifecycle: Run lifecycle memory demonstration
+demo-lifecycle:
+	@$(GO) run examples/lifecycle_demo.go
+
+## demo-persistent-lifecycle: Run persistent lifecycle memory demonstration
+demo-persistent-lifecycle:
+	@$(GO) run examples/persistent_lifecycle_demo.go
+
 ## fmt: Format Go code
 fmt:
 	@$(GOLANGCI_LINT) fmt
