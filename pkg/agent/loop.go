@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sipeed/picoclaw/pkg/agent/memory"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -35,6 +36,7 @@ type AgentLoop struct {
 	cfg            *config.Config
 	registry       *AgentRegistry
 	state          *state.Manager
+	memoryManager  *memory.MemoryManager  // 新增：内存管理器
 	running        atomic.Bool
 	summarizing    sync.Map
 	fallback       *providers.FallbackChain
@@ -127,16 +129,29 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		stateManager = state.NewManager(defaultAgent.Workspace)
 	}
 
+	// 新增：初始化内存管理器
+	var memoryManager *memory.MemoryManager
+	if cfg.Memory.Enabled {
+		var err error
+		memoryManager, err = memory.NewMemoryManager(cfg.WorkspacePath())
+		if err != nil {
+			logger.ErrorCF("memory", "Failed to initialize memory manager", map[string]any{"error": err})
+			// 可选：降级到禁用状态而不是失败
+			memoryManager = nil
+		}
+	}
+
 	// Default to original system, can be overridden via config/env
 	useModular := false // Use feature flag to enable modular system
 
 	return &AgentLoop{
-		bus:         msgBus,
-		cfg:         cfg,
-		registry:    registry,
-		state:       stateManager,
-		summarizing: sync.Map{},
-		fallback:    fallbackChain,
+		bus:            msgBus,
+		cfg:            cfg,
+		registry:       registry,
+		state:          stateManager,
+		memoryManager:  memoryManager,  // 添加到实例
+		summarizing:    sync.Map{},
+		fallback:       fallbackChain,
 		// Initialize modular architecture support but default to disabled
 		useModular: useModular,
 	}
@@ -595,11 +610,47 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 		history = agent.Sessions.GetHistory(opts.SessionKey)
 		summary = agent.Sessions.GetSummary(opts.SessionKey)
 	}
+	// 新增：从记忆系统获取相关上下文
+	var memoryContext string
+	if al.memoryManager != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = ctx // 显式使用ctx变量避免未使用警告
+		// 使用Search方法获取相关记忆上下文
+		searchResults, err := al.memoryManager.Search(opts.UserMessage, 5) // 获取最多5个相关项
+		if err != nil {
+			logger.WarnCF("memory", "Failed to search memory context", map[string]any{"error": err})
+		} else if len(searchResults) > 0 {
+			// 将搜索结果格式化为上下文字符串
+			var contextBuilder strings.Builder
+			contextBuilder.WriteString("## Relevant Past Memories\n")
+
+			for i, result := range searchResults {
+				if i >= 3 { // 限制最多3个最相关项目
+					break
+				}
+
+				// 确保内容不过长
+				content := result.Content
+				if len(content) > 500 {
+					content = content[:500] + "..."
+				}
+
+				contextBuilder.WriteString(fmt.Sprintf("### Memory %d: %s\n", i+1, result.Key))
+				contextBuilder.WriteString(content)
+				contextBuilder.WriteString("\n\n")
+			}
+
+			memoryContext = contextBuilder.String()
+		}
+		cancel()
+	}
+
 	messages := agent.ContextBuilder.BuildMessages(
 		history,
 		summary,
 		opts.UserMessage,
-		nil,
+		memoryContext,  // 新增参数：记忆上下文
+		nil,            // media参数
 		opts.Channel,
 		opts.ChatID,
 	)
@@ -633,6 +684,23 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 	// 6. Save final assistant message to session
 	agent.Sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
 	agent.Sessions.Save(opts.SessionKey)
+
+	// 新增：将重要信息沉淀到记忆系统
+	if al.memoryManager != nil && finalContent != "" {
+		go func() { // 异步沉淀以避免阻塞响应
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel() // 使用defer确保cancel被调用
+			_ = ctx // 显式使用ctx变量避免未使用警告
+			// 使用SedimentKnowledge方法沉淀知识
+			err := al.memoryManager.SedimentKnowledge(
+				fmt.Sprintf("Session: %s, Query: %s, Response: %s", opts.SessionKey, opts.UserMessage, finalContent),
+				opts.SessionKey, // sourceKey
+			)
+			if err != nil {
+				logger.WarnCF("memory", "Failed to sediment knowledge", map[string]any{"error": err, "session_key": opts.SessionKey})
+			}
+		}()
+	}
 
 	// 7. Optional: summarization
 	if opts.EnableSummary {
@@ -670,18 +738,11 @@ func (al *AgentLoop) runLLMIteration(
 	for iteration < agent.MaxIterations {
 		iteration++
 
-		// Send progress update at the beginning of each iteration
-		if progressCallback != nil {
-			progress := float64(iteration) / float64(agent.MaxIterations) * 100.0
-			err := progressCallback(progress, fmt.Sprintf("Processing iteration %d/%d", iteration, agent.MaxIterations), map[string]interface{}{
-				"iteration":     iteration,
-				"max_iter":      agent.MaxIterations,
-				"phase":         "llm_processing",
-				"is_completed":  false,
-			})
-			if err != nil {
-				logger.WarnCF("agent", "Failed to send progress update", map[string]any{"error": err})
-			}
+		// Send progress update at the beginning of each iteration - skip to reduce noise
+		// Only send progress updates for thinking/processing content, not simple iteration counters
+		if progressCallback != nil && agent.MaxIterations > 1 {
+			// Don't send basic iteration progress messages to reduce clutter
+			// Progress updates for thinking/content will be handled separately
 		}
 
 		// Build tool definitions
@@ -772,7 +833,7 @@ func (al *AgentLoop) runLLMIteration(
 				// IMPORTANT: Include the original user message when rebuilding messages after compression
 				messages = agent.ContextBuilder.BuildMessages(
 					newHistory, newSummary, opts.UserMessage,
-					nil, opts.Channel, opts.ChatID,
+					"", nil, opts.Channel, opts.ChatID,  // 更新调用以匹配新的方法签名
 				)
 				continue
 			}
@@ -815,7 +876,7 @@ func (al *AgentLoop) runLLMIteration(
 			// Only send if content seems like thinking/intermediate result rather than empty/boilerplate
 			if len(thoughtContent) > 0 {
 				currentProgress := float64(iteration-1) / float64(agent.MaxIterations) * 100.0
-				err := progressCallback(currentProgress, fmt.Sprintf("💭 Thinking: %s", utils.Truncate(thoughtContent, 100)), map[string]interface{}{
+				err := progressCallback(currentProgress, fmt.Sprintf("💭 Thinking: %s", utils.Truncate(thoughtContent, 512)), map[string]interface{}{
 					"phase":     "llm_thinking",
 					"iteration": iteration,
 					"has_tools": len(normalizedToolCalls) > 0,
@@ -1037,7 +1098,7 @@ func (al *AgentLoop) runLLMIteration(
 
 				// ALSO send as progress message for intermediate results display
 				progressContent := fmt.Sprintf("🔧 Tool '%s' completed: %s", tc.Name,
-					utils.Truncate(toolResult.ForUser, 100)) // Truncate for progress display
+					utils.Truncate(toolResult.ForUser, 512)) // Truncate for progress display
 				al.bus.PublishOutbound(bus.OutboundMessage{
 					Channel:     opts.Channel,
 					ChatID:      opts.ChatID,
@@ -1077,6 +1138,25 @@ func (al *AgentLoop) runLLMIteration(
 
 			// Save tool result message to session
 			agent.Sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
+
+			// 新增：如果工具结果重要，则将其沉淀到记忆系统
+			if al.memoryManager != nil && contentForLLM != "" && shouldRememberToolResult(tc.Name) {
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel() // 使用defer确保cancel被调用
+					_ = ctx // 显式使用ctx变量避免未使用警告
+					// 创建一个描述工具调用和结果的摘要
+					toolResultSummary := fmt.Sprintf("Tool '%s' executed with arguments %v, result: %s", tc.Name, tc.Arguments, contentForLLM)
+					// 使用SedimentKnowledge方法沉淀工具执行结果
+					err := al.memoryManager.SedimentKnowledge(
+						toolResultSummary,
+						fmt.Sprintf("tool_result_%s", tc.Name), // sourceKey
+					)
+					if err != nil {
+						logger.WarnCF("memory", "Failed to sediment tool result", map[string]any{"error": err, "tool": tc.Name})
+					}
+				}()
+			}
 		}
 
 		// If steering was received, inject user message and continue
@@ -1170,7 +1250,8 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 		history,
 		summary,
 		memoryFlushPrompt,
-		nil,
+		"",      // memoryContext - 在flush时通常不需要额外的上下文
+		nil,     // media参数
 		channel,
 		chatID,
 	)
@@ -1245,6 +1326,25 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 
 			// Add to session for potential future reference
 			agent.Sessions.AddFullMessage(sessionKey, toolResultMsg)
+
+			// 新增：如果工具结果重要，则将其沉淀到记忆系统（内存刷新场景）
+			if al.memoryManager != nil && contentForLLM != "" && shouldRememberToolResult(tc.Name) {
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel() // 使用defer确保cancel被调用
+					_ = ctx // 显式使用ctx变量避免未使用警告
+					// 创建一个描述工具调用和结果的摘要
+					toolResultSummary := fmt.Sprintf("Memory flush tool '%s' executed with arguments %v, result: %s", tc.Name, tc.Arguments, contentForLLM)
+					// 使用SedimentKnowledge方法沉淀工具执行结果
+					err := al.memoryManager.SedimentKnowledge(
+						toolResultSummary,
+						fmt.Sprintf("memory_flush_tool_result_%s", tc.Name), // sourceKey
+					)
+					if err != nil {
+						logger.WarnCF("memory", "Failed to sediment memory flush tool result", map[string]any{"error": err, "tool": tc.Name})
+					}
+				}()
+			}
 		}
 	}
 }
@@ -2079,4 +2179,19 @@ func (al *AgentLoop) shouldSendToolResultToUser(agent *AgentInstance, toolName s
 	// (Additional filtering could be implemented here based on tool types or other policies)
 
 	return true
+}
+
+// shouldRememberToolResult determines if the results from a particular tool should be remembered in memory
+func shouldRememberToolResult(toolName string) bool {
+	// 定义值得关注的工具名称列表
+	importantTools := map[string]bool{
+		"read_file":    true,
+		"write_file":   true,
+		"web_search":   true,
+		"web_fetch":    true,
+		"exec":         true,
+		"cron":         true,
+	}
+
+	return importantTools[toolName]
 }

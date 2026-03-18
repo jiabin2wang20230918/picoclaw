@@ -163,6 +163,7 @@ func (cb *ContextBuilder) BuildMessages(
 	history []providers.Message,
 	summary string,
 	currentMessage string,
+	memoryContext string,  // 新增参数：记忆上下文
 	media []string,
 	channel, chatID string,
 ) []providers.Message {
@@ -195,6 +196,11 @@ func (cb *ContextBuilder) BuildMessages(
 
 	if summary != "" {
 		systemPrompt += "\n\n## Summary of Previous Conversation\n\n" + summary
+	}
+
+	// 新增：添加记忆上下文
+	if memoryContext != "" {
+		systemPrompt += "\n\n## Relevant Memories\n\n" + memoryContext
 	}
 
 	history = sanitizeHistoryForProvider(history)
