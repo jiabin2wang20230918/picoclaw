@@ -17,7 +17,6 @@ import (
 type ContextBuilder struct {
 	workspace    string
 	skillsLoader *skills.SkillsLoader
-	memory       *MemoryStore
 	tools        *tools.ToolRegistry // Direct reference to tool registry
 }
 
@@ -39,7 +38,6 @@ func NewContextBuilder(workspace string) *ContextBuilder {
 	return &ContextBuilder{
 		workspace:    workspace,
 		skillsLoader: skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir),
-		memory:       NewMemoryStore(workspace),
 	}
 }
 
@@ -111,30 +109,41 @@ func (cb *ContextBuilder) buildToolsSection() string {
 func (cb *ContextBuilder) BuildSystemPrompt() string {
 	parts := []string{}
 
-	// Core identity section
+	// Core identity section (Persistent Layer)
 	parts = append(parts, cb.getIdentity())
 
-	// Bootstrap files
+	// Bootstrap files (Persistent Layer)
 	bootstrapContent := cb.LoadBootstrapFiles()
 	if bootstrapContent != "" {
 		parts = append(parts, bootstrapContent)
 	}
 
-	// Skills - show summary, AI can read full content with read_file tool
+	// Skills - show summary only (On-Demand Layer concept)
+	// Full skill content is loaded via read_file tool only when needed
 	skillsSummary := cb.skillsLoader.BuildSkillsSummary()
 	if skillsSummary != "" {
-		parts = append(parts, fmt.Sprintf(`# Skills
+		parts = append(parts, fmt.Sprintf(`# Available Skills
 
-The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
+The following skills are available for use. Each skill has a name, description, and location.
+When you need to use a specific skill, use the 'load_skill' tool to load its detailed content.
+This implements on-demand loading - only load skill content when you specifically need to use that skill.
 
-%s`, skillsSummary))
+%s
+
+## How to Use Skills
+
+1. **Identify the skill needed** - Based on the task at hand, identify which skill might be useful
+2. **Load the skill** - Use the 'load_skill' tool with the skill name to get its detailed content
+3. **Apply the skill** - Use the loaded skill content to guide your actions`, skillsSummary))
 	}
 
-	// Memory context
-	memoryContext := cb.memory.GetMemoryContext()
-	if memoryContext != "" {
-		parts = append(parts, "# Memory\n\n"+memoryContext)
-	}
+	// Memory availability notice (Memory Layer)
+	parts = append(parts, fmt.Sprintf(`# Memory Access
+
+Cross-session memories are available in %s/memory/ directory.
+Use read_file tool to access MEMORY.md or specific daily notes (YYYYMM/YYYYMMDD.md) when relevant.
+This keeps memory content separate from system context for better information density.`,
+		cb.workspace))
 
 	// Join with "---" separator
 	return strings.Join(parts, "\n\n---\n\n")
@@ -198,17 +207,20 @@ func (cb *ContextBuilder) BuildMessages(
 		systemPrompt += "\n\n## Summary of Previous Conversation\n\n" + summary
 	}
 
-	// 新增：添加记忆上下文
-	if memoryContext != "" {
-		systemPrompt += "\n\n## Relevant Memories\n\n" + memoryContext
-	}
-
 	history = sanitizeHistoryForProvider(history)
 
 	messages = append(messages, providers.Message{
 		Role:    "system",
 		Content: systemPrompt,
 	})
+
+	// 新增：在系统消息之后立即添加相关记忆内容（如果有）
+	if memoryContext != "" {
+		messages = append(messages, providers.Message{
+			Role:    "user",
+			Content: "## Relevant Memories\n\n" + memoryContext,
+		})
+	}
 
 	messages = append(messages, history...)
 
@@ -294,25 +306,6 @@ func (cb *ContextBuilder) AddAssistantMessage(
 	return messages
 }
 
-func (cb *ContextBuilder) loadSkills() string {
-	allSkills := cb.skillsLoader.ListSkills()
-	if len(allSkills) == 0 {
-		return ""
-	}
-
-	var skillNames []string
-	for _, s := range allSkills {
-		skillNames = append(skillNames, s.Name)
-	}
-
-	content := cb.skillsLoader.LoadSkillsForContext(skillNames)
-	if content == "" {
-		return ""
-	}
-
-	return "# Skill Definitions\n\n" + content
-}
-
 // GetSkillsInfo returns information about loaded skills.
 func (cb *ContextBuilder) GetSkillsInfo() map[string]any {
 	allSkills := cb.skillsLoader.ListSkills()
@@ -325,4 +318,112 @@ func (cb *ContextBuilder) GetSkillsInfo() map[string]any {
 		"available": len(allSkills),
 		"names":     skillNames,
 	}
+}
+
+// BuildMessagesOptimized constructs messages with optimized information density
+// This method intelligently manages context size and relevance
+func (cb *ContextBuilder) BuildMessagesOptimized(
+	history []providers.Message,
+	summary string,
+	currentMessage string,
+	memoryContext string,
+	media []string,
+	channel, chatID string,
+	tokenBudget int, // Maximum token budget for the context
+) []providers.Message {
+
+	// Build the initial message sequence
+	messages := cb.BuildMessages(history, summary, currentMessage, memoryContext, media, channel, chatID)
+
+	// If there's no token budget constraint, return as-is
+	if tokenBudget <= 0 {
+		return messages
+	}
+
+	// Apply information density optimization based on token budget
+	return cb.optimizeForTokenBudget(messages, tokenBudget)
+}
+
+// optimizeForTokenBudget optimizes messages to fit within the specified token budget
+// This is a simplified implementation - in practice, you'd use actual token counting
+func (cb *ContextBuilder) optimizeForTokenBudget(messages []providers.Message, tokenBudget int) []providers.Message {
+	// This is a simple implementation that just counts characters as proxy for tokens
+	// In practice, you'd want to use a proper token counter
+
+	// Calculate current message length
+	totalChars := 0
+	for _, msg := range messages {
+		totalChars += len(msg.Content)
+	}
+
+	// If we're already under budget, return as-is
+	if totalChars <= tokenBudget {
+		return messages
+	}
+
+	// We need to optimize. Start by preserving system message and current user message
+	optimizedMessages := []providers.Message{}
+	var systemMsg *providers.Message
+	var userMsg *providers.Message
+	var assistantAndToolMsgs []providers.Message
+
+	for i, msg := range messages {
+		if msg.Role == "system" {
+			systemMsg = &messages[i]
+		} else if msg.Role == "user" && i == len(messages)-1 { // Last user message is the current one
+			userMsg = &messages[i]
+		} else {
+			assistantAndToolMsgs = append(assistantAndToolMsgs, messages[i])
+		}
+	}
+
+	if systemMsg != nil {
+		optimizedMessages = append(optimizedMessages, *systemMsg)
+	}
+
+	// Add memory context if present (this is usually important)
+	for _, msg := range assistantAndToolMsgs {
+		if strings.Contains(msg.Content, "## Relevant Memories") {
+			optimizedMessages = append(optimizedMessages, msg)
+			break // Only add memory context once
+		}
+	}
+
+	// Add history with smart truncation if needed
+	remainingBudget := tokenBudget
+	if systemMsg != nil {
+		remainingBudget -= len(systemMsg.Content)
+	}
+	if userMsg != nil {
+		remainingBudget -= len(userMsg.Content)
+	}
+
+	// Add history messages (excluding memory context) up to budget
+	historyAdded := 0
+	for i := len(assistantAndToolMsgs) - 1; i >= 0; i-- { // Start from most recent
+		msg := assistantAndToolMsgs[i]
+		// Skip memory context as it's already added
+		if !strings.Contains(msg.Content, "## Relevant Memories") {
+			if len(msg.Content) <= remainingBudget {
+				// Prepend to maintain order (most recent first)
+				newOptimized := []providers.Message{msg}
+				newOptimized = append(newOptimized, optimizedMessages[1:]...) // Skip system message
+				optimizedMessages = append([]providers.Message{optimizedMessages[0]}, newOptimized...) // Re-add system at start
+				remainingBudget -= len(msg.Content)
+				historyAdded++
+
+				// Limit the number of historical messages for better information density
+				if historyAdded >= 5 { // Limit to 5 recent exchanges for better density
+					break
+				}
+			}
+		}
+	}
+
+	// Finally add the current user message
+	if userMsg != nil {
+		optimizedMessages = append(optimizedMessages, *userMsg)
+	}
+
+	return optimizedMessages
 }

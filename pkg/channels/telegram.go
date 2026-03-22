@@ -231,17 +231,8 @@ func (c *TelegramChannel) SendProgress(ctx context.Context, msg bus.OutboundMess
 		}
 	}()
 
-	// Prepare content based on progress information
-	var content string
-	if msg.Progress != nil {
-		if msg.Content != "" {
-			content = fmt.Sprintf("⏳ %s (%.1f%%)", msg.Content, *msg.Progress)
-		} else {
-			content = fmt.Sprintf("⏳ Processing... (%.1f%%)", *msg.Progress)
-		}
-	} else {
-		content = fmt.Sprintf("⏳ %s", msg.Content)
-	}
+	// Prepare content - only show the content without percentage
+	content := msg.Content
 
 	// Send the progress message
 	tgMsg := tu.Message(tu.ID(chatID), markdownToTelegramHTML(content))

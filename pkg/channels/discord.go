@@ -151,17 +151,8 @@ func (c *DiscordChannel) SendProgress(ctx context.Context, msg bus.OutboundMessa
 	// Start typing indicator for better UX during progress updates
 	c.startTyping(channelID)
 
-	// Prepare progress content
-	var content string
-	if msg.Progress != nil {
-		if msg.Content != "" {
-			content = fmt.Sprintf("⏳ %s (%.1f%%)", msg.Content, *msg.Progress)
-		} else {
-			content = fmt.Sprintf("⏳ Processing... (%.1f%%)", *msg.Progress)
-		}
-	} else {
-		content = fmt.Sprintf("⏳ %s", msg.Content)
-	}
+	// Prepare progress content - only show the content without percentage
+	content := msg.Content
 
 	// Stop typing before sending the message to avoid conflicts
 	c.stopTyping(channelID)

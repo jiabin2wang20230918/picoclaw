@@ -138,17 +138,8 @@ func (c *FeishuChannel) SendProgress(ctx context.Context, msg bus.OutboundMessag
 		return fmt.Errorf("chat ID is empty for progress message")
 	}
 
-	// Prepare progress content
-	var content string
-	if msg.Progress != nil {
-		if msg.Content != "" {
-			content = fmt.Sprintf("⏳ %s (%.1f%%)", msg.Content, *msg.Progress)
-		} else {
-			content = fmt.Sprintf("⏳ Processing... (%.1f%%)", *msg.Progress)
-		}
-	} else {
-		content = fmt.Sprintf("⏳ %s", msg.Content)
-	}
+	// Prepare progress content - only show the content without percentage
+	content := msg.Content
 
 	// Create a new message with progress content
 	progressMsg := bus.OutboundMessage{

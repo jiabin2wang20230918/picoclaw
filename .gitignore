@@ -8,6 +8,7 @@ build/
 *.dylib
 *.test
 *.out
+*.backup
 /picoclaw
 /picoclaw-test
 cmd/picoclaw/workspace
