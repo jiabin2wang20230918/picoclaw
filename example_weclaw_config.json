@@ -1,0 +1,42 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.picoclaw/workspace",
+      "restrict_to_workspace": true,
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "max_tokens": 4096,
+      "max_tool_iterations": 35,
+      "send_progress": true,
+      "send_tool_hints": true
+    }
+  },
+  "channels": {
+    // Other channels...
+  },
+  "weclaw_service": {
+    "enabled": true,
+    "port": 18080,
+    "address": "127.0.0.1"
+  },
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "tools": {
+    "web": {
+      "brave": {
+        "enabled": false
+      },
+      "tavily": {
+        "enabled": false
+      },
+      "duckduckgo": {
+        "enabled": true
+      },
+      "perplexity": {
+        "enabled": false
+      }
+    }
+  }
+}

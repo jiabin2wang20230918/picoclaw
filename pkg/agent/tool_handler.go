@@ -9,7 +9,6 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
 // ToolHandler handles all tool-related operations
@@ -80,49 +79,13 @@ func (th *ToolHandler) ProcessToolCalls(
 			asyncCallback,
 		)
 
-		// Handle tool result based on configuration
-		shouldSendToUser := th.shouldSendToolResultToUser(nil, tc.Name, toolResult) // Pass nil for agent for now, or we need to pass agent
-
-		// Send tool result progress notification
-		if th.config.Agents.Defaults.SendToolHints && progressCallback != nil {
-			var toolResultHint string
-			if shouldSendToUser && toolResult.ForUser != "" {
-				// Only send completion notification if it adds useful context beyond the result itself
-				// Avoid duplicating the actual tool result content
-				toolResultHint = fmt.Sprintf("Tool '%s' execution completed", tc.Name)
-			} else {
-				toolResultHint = fmt.Sprintf("Tool '%s' completed (result not shown to user)", tc.Name)
-			}
-
-			err := progressCallback(0, toolResultHint, map[string]interface{}{
-				"tool_name":     tc.Name,
-				"tool_args":     tc.Arguments,
-				"tool_result_len": len(toolResult.ForLLM),
-				"sent_to_user":  shouldSendToUser,
-				"phase":         "tool_completed",
-				"is_completed":  true,
-			})
-			if err != nil {
-				logger.WarnCF("agent", "Failed to send tool result hint", map[string]any{"error": err})
-			}
-		}
-
-		// Send result to user if configured
-		if shouldSendToUser && toolResult.ForUser != "" {
-			th.messageBus.PublishOutbound(bus.OutboundMessage{
-				Channel: channel,
-				ChatID:  chatID,
-				Content: toolResult.ForUser,
-			})
-		}
-
-		// Determine content for LLM based on tool result
+		// Determine content for LLM based on tool result (this is still needed for the LLM to continue processing)
 		contentForLLM := toolResult.ForLLM
 		if contentForLLM == "" && toolResult.Err != nil {
 			contentForLLM = toolResult.Err.Error()
 		}
 
-		// Create tool result message
+		// Create tool result message for the LLM (this is necessary for the LLM to continue its reasoning)
 		toolResultMsg := providers.Message{
 			Role:       "tool",
 			Content:    contentForLLM,
@@ -149,7 +112,8 @@ func (th *ToolHandler) shouldSendToolResultToUser(agent *AgentInstance, toolName
 		return false
 	}
 
-	// Otherwise, send if not silent
-	return true
+	// For this use case, we want to suppress ALL tool results from being sent to the user
+	// and only show the final synthesized response
+	return false
 }
 

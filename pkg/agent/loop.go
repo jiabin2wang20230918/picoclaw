@@ -313,12 +313,27 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					}
 				}
 
-				if !alreadySent {
+				// For channels like Feishu, we want to ensure that the final synthesized response
+				// is always delivered to the user, even if intermediate tool results were sent.
+				// The alreadySent flag might prevent the final comprehensive answer from reaching the user.
+				// So we'll send the final response on channels where this is important.
+				channelType := msg.Channel
+				if channelType == "feishu" {
+					// For Feishu, always send the final response to ensure user gets the complete answer
 					al.bus.PublishOutbound(bus.OutboundMessage{
 						Channel: msg.Channel,
 						ChatID:  msg.ChatID,
 						Content: response,
 					})
+				} else {
+					// For other channels, respect the alreadySent flag to avoid duplication
+					if !alreadySent {
+						al.bus.PublishOutbound(bus.OutboundMessage{
+							Channel: msg.Channel,
+							ChatID:  msg.ChatID,
+							Content: response,
+						})
+					}
 				}
 			}
 		}
@@ -458,7 +473,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	}
 
 	// Send initial progress feedback to let user know their request is being processed
-	if al.cfg.Agents.Defaults.SendProgress { // Use config instead of agent property
+	if al.cfg.Agents.Defaults.SendProgress && al.cfg.Agents.Defaults.SendToolHints { // Require both flags to show initial progress
 		initialProgressMsg := bus.OutboundMessage{
 			Channel:     msg.Channel,
 			ChatID:      msg.ChatID,
@@ -874,14 +889,27 @@ func (al *AgentLoop) handleToolResultNotification(
 			Content: toolResult.ForUser,
 		})
 
+		// Additionally, for certain channels like Feishu, we may want to provide a clearer indication
+		// that a tool has completed, especially when many tools are being executed
 		progressContent := fmt.Sprintf("🔧 Tool '%s' completed: %s", toolName,
 			utils.Truncate(toolResult.ForUser, 512))
-		al.bus.PublishOutbound(bus.OutboundMessage{
+		progressMsg := bus.OutboundMessage{
 			Channel:     opts.Channel,
 			ChatID:      opts.ChatID,
 			Content:     progressContent,
 			MessageType: bus.MessageTypeProgress,
-		})
+		}
+
+		// Publish progress message via the progress callback mechanism instead of directly
+		if progressCallback != nil {
+			progressCallback(0, progressContent, map[string]interface{}{
+				"tool_name": toolName,
+				"phase": "tool_completed",
+			})
+		} else {
+			// If no progress callback, send directly as a progress message
+			al.bus.PublishOutbound(progressMsg)
+		}
 	}
 }
 
