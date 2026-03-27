@@ -45,6 +45,8 @@ type AgentLoop struct {
 	// Modular architecture components placeholder for future Beehive integration
 	useModular     bool // Feature flag to control which system is used
 	toolHandler    *ToolHandler // 新增：工具处理器
+	sessionManager *SessionManager // 新增：会话管理器
+	messageBuilder *MessageBuilder // 新增：消息构建器
 }
 
 // ProgressCallback is a function type for reporting progress during agent execution
@@ -154,6 +156,17 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		toolHandler = nil
 	}
 
+	// 创建分层组件
+	var sessionManager *SessionManager
+	var messageBuilder *MessageBuilder
+	if defaultAgent != nil {
+		sessionManager = NewSessionManager(defaultAgent)
+		messageBuilder = NewMessageBuilder(sessionManager)
+	} else {
+		sessionManager = nil
+		messageBuilder = nil
+	}
+
 	return &AgentLoop{
 		bus:            msgBus,
 		cfg:            cfg,
@@ -165,6 +178,8 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		// Initialize modular architecture support but default to disabled
 		useModular:     useModular,
 		toolHandler:    toolHandler, // 添加ToolHandler
+		sessionManager: sessionManager, // 添加SessionManager
+		messageBuilder: messageBuilder, // 添加MessageBuilder
 	}
 }
 
@@ -636,14 +651,20 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 	var history []providers.Message
 	var summary string
 	if !opts.NoHistory {
-		history = agent.Sessions.GetHistory(opts.SessionKey)
-		summary = agent.Sessions.GetSummary(opts.SessionKey)
+		if al.sessionManager != nil {
+			history = al.sessionManager.GetHistory(opts.SessionKey)
+			summary = al.sessionManager.GetSummary(opts.SessionKey)
+		} else {
+			history = agent.Sessions.GetHistory(opts.SessionKey)
+			summary = agent.Sessions.GetSummary(opts.SessionKey)
+		}
 	}
+
 	// 新增：从记忆系统获取相关上下文
 	var memoryContext string
 	if al.memoryManager != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = ctx // 显式使用ctx变量避免未使用警告
+		memCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = memCtx // 显式使用ctx变量避免未使用警告
 		// 使用Search方法获取相关记忆上下文
 		searchResults, err := al.memoryManager.Search(opts.UserMessage, 5) // 获取最多5个相关项
 		if err != nil {
@@ -674,18 +695,38 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 		cancel()
 	}
 
-	messages := agent.ContextBuilder.BuildMessages(
-		history,
-		summary,
-		opts.UserMessage,
-		memoryContext,  // 新增参数：记忆上下文
-		nil,            // media参数
-		opts.Channel,
-		opts.ChatID,
-	)
+	// 构建消息
+	var messages []providers.Message
+	if al.messageBuilder != nil {
+		// 使用新组件构建消息（如果可用）
+		messages = al.messageBuilder.BuildMessages(
+			history,
+			summary,
+			opts.UserMessage,
+			memoryContext,
+			"", // media参数
+			opts.Channel,
+			opts.ChatID,
+		)
+	} else {
+		// 后备实现
+		messages = agent.ContextBuilder.BuildMessages(
+			history,
+			summary,
+			opts.UserMessage,
+			memoryContext,  // 新增参数：记忆上下文
+			nil,            // media参数
+			opts.Channel,
+			opts.ChatID,
+		)
+	}
 
 	// 3. Save user message to session
-	agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+	if al.sessionManager != nil {
+		al.sessionManager.AddUserMessage(opts.SessionKey, opts.UserMessage)
+	} else {
+		agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+	}
 
 	// 4. Run LLM iteration loop
 	progressCallback := al.progressCallbackFunc(opts.Channel, opts.ChatID)
@@ -699,14 +740,66 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 
 	// 5. Handle empty response
 	if finalContent == "" {
-		// Don't skip default response just because there were tool activities
-		// Let the user know the task has been completed
-		finalContent = opts.DefaultResponse
+		// Instead of returning a hardcoded default response, generate a meaningful summary
+		// using the LLM based on the conversation history and user's original query
+
+		// Create a summary prompt to generate a meaningful response
+		summaryPrompt := fmt.Sprintf("Based on our conversation and the tasks I attempted to complete, please provide a helpful summary. The user asked: '%s'. If you performed any actions or found any information, please summarize that. If you couldn't find the requested information, explain that politely and suggest possible next steps.", opts.UserMessage)
+
+		// Build a new message list with the summary prompt
+		var summaryHistory []providers.Message
+		if al.sessionManager != nil {
+			summaryHistory = al.sessionManager.GetHistory(opts.SessionKey)
+		} else {
+			summaryHistory = agent.Sessions.GetHistory(opts.SessionKey)
+		}
+
+		var summaryMessages []providers.Message
+		if al.messageBuilder != nil {
+			summaryMessages = al.messageBuilder.BuildMessages(
+				summaryHistory,
+				agent.Sessions.GetSummary(opts.SessionKey),
+				summaryPrompt,
+				"", // memoryContext
+				"", // media
+				opts.Channel,
+				opts.ChatID,
+			)
+		} else {
+			summaryMessages = agent.ContextBuilder.BuildMessages(
+				summaryHistory,
+				agent.Sessions.GetSummary(opts.SessionKey),
+				summaryPrompt,
+				"", // memoryContext
+				nil, // media
+				opts.Channel,
+				opts.ChatID,
+			)
+		}
+
+		// Call the LLM to generate a meaningful response
+		summaryResponse, err := agent.Provider.Chat(ctx, summaryMessages, agent.Tools.ToProviderDefs(), agent.Model, map[string]any{
+			"max_tokens":  agent.MaxTokens,
+			"temperature": agent.Temperature,
+		})
+
+		if err != nil || summaryResponse == nil || summaryResponse.Content == "" {
+			// If LLM fails to generate a response, provide a more helpful default
+			finalContent = fmt.Sprintf("I've completed processing your request about: '%s'. I couldn't generate a detailed response, but I may have performed some actions in the background. If you need specific information, please try rephrasing your question.",
+				utils.Truncate(opts.UserMessage, 60))
+		} else {
+			finalContent = summaryResponse.Content
+		}
 	}
 
 	// 6. Save final assistant message to session
-	agent.Sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
-	agent.Sessions.Save(opts.SessionKey)
+	if al.sessionManager != nil {
+		al.sessionManager.AddAssistantMessage(opts.SessionKey, finalContent)
+		al.sessionManager.Save(opts.SessionKey)
+	} else {
+		agent.Sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
+		agent.Sessions.Save(opts.SessionKey)
+	}
 
 	// 新增：将重要信息沉淀到记忆系统
 	if al.memoryManager != nil && finalContent != "" {
@@ -853,7 +946,11 @@ func (al *AgentLoop) processToolCalls(
 		}
 
 		// Save to session
-		agent.Sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
+		if al.sessionManager != nil {
+			al.sessionManager.AddToolResult(opts.SessionKey, toolResultMsg)
+		} else {
+			agent.Sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
+		}
 	}
 
 	return toolResultMessages, nil

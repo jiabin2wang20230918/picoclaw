@@ -84,6 +84,14 @@ build: generate
 	@echo "Build complete: $(BINARY_PATH)"
 	@ln -sf $(BINARY_NAME)-$(PLATFORM)-$(ARCH) $(BUILD_DIR)/$(BINARY_NAME)
 
+## build-acp: Build the picoclaw-acp binary for ACP protocol support
+build-acp: generate
+	@echo "Building picoclaw-acp for $(PLATFORM)/$(ARCH)..."
+	@mkdir -p $(BUILD_DIR)
+	@$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/picoclaw-acp-$(PLATFORM)-$(ARCH) ./cmd/picoclaw-acp
+	@echo "ACP build complete: $(BUILD_DIR)/picoclaw-acp-$(PLATFORM)-$(ARCH)"
+	@ln -sf picoclaw-acp-$(PLATFORM)-$(ARCH) $(BUILD_DIR)/picoclaw-acp
+
 ## build-all: Build picoclaw for all platforms
 build-all: generate
 	@echo "Building for multiple platforms..."
@@ -94,6 +102,9 @@ build-all: generate
 	GOOS=linux GOARCH=riscv64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-riscv64 ./$(CMD_DIR)
 	GOOS=darwin GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./$(CMD_DIR)
 	GOOS=windows GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./$(CMD_DIR)
+	GOOS=linux GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/picoclaw-acp-linux-amd64 ./cmd/picoclaw-acp
+	GOOS=linux GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/picoclaw-acp-linux-arm64 ./cmd/picoclaw-acp
+	GOOS=darwin GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/picoclaw-acp-darwin-arm64 ./cmd/picoclaw-acp
 	@echo "All builds complete"
 
 ## install: Install picoclaw to system and copy builtin skills

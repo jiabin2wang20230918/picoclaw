@@ -112,8 +112,7 @@ func (th *ToolHandler) shouldSendToolResultToUser(agent *AgentInstance, toolName
 		return false
 	}
 
-	// For this use case, we want to suppress ALL tool results from being sent to the user
-	// and only show the final synthesized response
-	return false
+	// Only send tool results that have meaningful content for the user
+	return result.ForUser != "" && !result.Silent
 }
 
