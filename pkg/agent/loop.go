@@ -932,6 +932,19 @@ func (al *AgentLoop) runLLMIteration(
 				"session_key":      opts.SessionKey,
 				"tool_calls_count": len(response.ToolCalls),
 			})
+			// Additional verification: Log the last few messages to ensure tool results are present 
+			if len(messages) >= 2 { 
+				lastMsg := messages[len(messages)-1] 
+				secondLastMsg := messages[len(messages)-2] 
+				logger.InfoCF("agent", "Last two messages in sequence", 
+					map[string]any{ 
+						"second_last_role": secondLastMsg.Role, 
+						"second_last_tool_call_count": len(secondLastMsg.ToolCalls), 
+						"last_role":        lastMsg.Role, 
+						"last_tool_call_id": lastMsg.ToolCallID, 
+						"last_content_preview": utils.Truncate(lastMsg.Content, 100), 
+					}) 
+			}
 
 		// Check for steering/interruption
 		if steering, ok := al.bus.ConsumeSteeringForSession(opts.SessionKey); ok {
@@ -978,20 +991,49 @@ func (al *AgentLoop) processAndIntegrateToolCalls(
 	opts processOptions,
 	progressCallback ProgressCallback,
 ) ([]providers.Message, error) {
+	logger.InfoCF("agent", "Processing and integrating tool calls",
+		map[string]any{
+			"tool_call_count": len(response.ToolCalls),
+			"message_count_before": len(messages),
+			"session_key":     opts.SessionKey,
+		})
+
 	// Add assistant message with tool calls to messages
 	assistantMsg := al.createAssistantMessage(response)
 	updatedMessages := append(messages, assistantMsg)
 
+	logger.InfoCF("agent", "Added assistant message with tool calls",
+		map[string]any{
+			"message_count_after_assistant": len(updatedMessages),
+			"session_key":                   opts.SessionKey,
+		})
+
 	// Process tool calls and get results
 	toolResultMessages, err := al.processToolCalls(ctx, agent, response.ToolCalls, opts, progressCallback)
 	if err != nil {
+		logger.ErrorCF("agent", "Failed to process tool calls", map[string]any{"error": err})
 		return nil, err
 	}
 
 	// Add tool results to messages
 	for _, toolResultMsg := range toolResultMessages {
 		updatedMessages = append(updatedMessages, toolResultMsg)
+		logger.InfoCF("agent", "Added tool result message to updated messages",
+			map[string]any{
+				"tool_call_id":  toolResultMsg.ToolCallID,
+				"content_len":   len(toolResultMsg.Content),
+				"role":          toolResultMsg.Role,
+				"message_count": len(updatedMessages),
+				"session_key":   opts.SessionKey,
+			})
 	}
+
+	logger.InfoCF("agent", "Completed processing and integrating tool calls",
+		map[string]any{
+			"message_count_final": len(updatedMessages),
+			"tool_result_count":   len(toolResultMessages),
+			"session_key":         opts.SessionKey,
+		})
 
 	return updatedMessages, nil
 }
@@ -1041,7 +1083,7 @@ func (al *AgentLoop) processToolCalls(
 			}
 		}
 
-		// Save to session
+		// Save to session - this is critical for ensuring LLM sees results in next iteration
 		if al.sessionManager != nil {
 			al.sessionManager.AddToolResult(opts.SessionKey, toolResultMsg)
 			logger.InfoCF("agent", "Saved tool result to session manager",
@@ -1059,6 +1101,27 @@ func (al *AgentLoop) processToolCalls(
 					"session_key":  opts.SessionKey,
 				})
 		}
+	}
+
+	// Verify that the session has been updated correctly
+	if al.sessionManager != nil {
+		history := al.sessionManager.GetHistory(opts.SessionKey)
+		logger.InfoCF("agent", "Session history verified after tool results",
+			map[string]any{
+				"session_key":   opts.SessionKey,
+				"history_count": len(history),
+				"last_msg_role": history[len(history)-1].Role,
+				"last_msg_content_preview": utils.Truncate(history[len(history)-1].Content, 100),
+			})
+	} else {
+		history := agent.Sessions.GetHistory(opts.SessionKey)
+		logger.InfoCF("agent", "Agent session history verified after tool results",
+			map[string]any{
+				"session_key":   opts.SessionKey,
+				"history_count": len(history),
+				"last_msg_role": history[len(history)-1].Role,
+				"last_msg_content_preview": utils.Truncate(history[len(history)-1].Content, 100),
+			})
 	}
 
 	return toolResultMessages, nil
