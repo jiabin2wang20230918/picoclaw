@@ -698,8 +698,16 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 	// 构建消息
 	var messages []providers.Message
 	if al.messageBuilder != nil {
-		// 使用新组件构建消息（如果可用）
-		messages = al.messageBuilder.BuildMessages(
+		// 使用新组件构建消息（如果可用）并传递实际的配置
+		// 需要转换配置类型
+		compactionConfig := CompactionConfig{
+			ReserveTokens:       agent.CompactionConfig.ReserveTokens,
+			KeepRecentTokens:    agent.CompactionConfig.KeepRecentTokens,
+			ReserveTokensFloor:  agent.CompactionConfig.ReserveTokensFloor,
+			MemoryFlushEnabled:  agent.CompactionConfig.MemoryFlush.Enabled,
+			SoftThresholdTokens: agent.CompactionConfig.MemoryFlush.SoftThresholdTokens,
+		}
+		messages = al.messageBuilder.BuildMessagesWithConfig(
 			history,
 			summary,
 			opts.UserMessage,
@@ -707,6 +715,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 			"", // media参数
 			opts.Channel,
 			opts.ChatID,
+			compactionConfig, // 使用转换后的配置
 		)
 	} else {
 		// 后备实现
@@ -756,7 +765,15 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 
 		var summaryMessages []providers.Message
 		if al.messageBuilder != nil {
-			summaryMessages = al.messageBuilder.BuildMessages(
+			// 需要转换配置类型
+			compactionConfig := CompactionConfig{
+				ReserveTokens:       agent.CompactionConfig.ReserveTokens,
+				KeepRecentTokens:    agent.CompactionConfig.KeepRecentTokens,
+				ReserveTokensFloor:  agent.CompactionConfig.ReserveTokensFloor,
+				MemoryFlushEnabled:  agent.CompactionConfig.MemoryFlush.Enabled,
+				SoftThresholdTokens: agent.CompactionConfig.MemoryFlush.SoftThresholdTokens,
+			}
+			summaryMessages = al.messageBuilder.BuildMessagesWithConfig(
 				summaryHistory,
 				agent.Sessions.GetSummary(opts.SessionKey),
 				summaryPrompt,
@@ -764,6 +781,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 				"", // media
 				opts.Channel,
 				opts.ChatID,
+				compactionConfig, // 使用转换后的配置
 			)
 		} else {
 			summaryMessages = agent.ContextBuilder.BuildMessages(
@@ -852,17 +870,49 @@ func (al *AgentLoop) runLLMIteration(
 	iteration := 0
 	var finalContent string
 
+	logger.InfoCF("agent", "Starting LLM iteration loop",
+		map[string]any{
+			"max_iterations": agent.MaxIterations,
+			"message_count":  len(messages),
+			"session_key":    opts.SessionKey,
+		})
+
 	for iteration < agent.MaxIterations {
 		iteration++
+
+		logger.InfoCF("agent", fmt.Sprintf("Starting iteration %d", iteration),
+			map[string]any{
+				"iteration":   iteration,
+				"message_len": len(messages),
+				"session_key": opts.SessionKey,
+			})
 
 		// Core LLM interaction loop - the essential logic
 		response, err := al.callLLMWithFallback(ctx, agent, messages, agent.Tools.ToProviderDefs(), opts)
 		if err != nil {
+			logger.ErrorCF("agent", "LLM call failed", map[string]any{"error": err, "iteration": iteration})
 			return "", iteration, fmt.Errorf("LLM call failed: %w", err)
 		}
 
+		logger.InfoCF("agent", fmt.Sprintf("LLM iteration %d completed", iteration),
+			map[string]any{
+				"iteration":      iteration,
+				"tool_call_count": len(response.ToolCalls),
+				"content_length": len(response.Content),
+				"agent_id":       agent.ID,
+				"session_key":    opts.SessionKey,
+				"has_content":    response.Content != "",
+				"has_tools":      len(response.ToolCalls) > 0,
+			})
+
 		// Check if no tool calls - we're done
 		if len(response.ToolCalls) == 0 {
+			logger.InfoCF("agent", "No tool calls, exiting iteration loop",
+				map[string]any{
+					"iteration":   iteration,
+					"session_key": opts.SessionKey,
+					"content_len": len(response.Content),
+				})
 			finalContent = response.Content
 			break
 		}
@@ -870,9 +920,18 @@ func (al *AgentLoop) runLLMIteration(
 		// Process tool calls and integrate results back into messages
 		updatedMessages, err := al.processAndIntegrateToolCalls(ctx, agent, response, messages, opts, progressCallback)
 		if err != nil {
+			logger.ErrorCF("agent", "Failed to process tool calls", map[string]any{"error": err, "iteration": iteration})
 			return "", iteration, fmt.Errorf("failed to process tool calls: %w", err)
 		}
 		messages = updatedMessages
+
+		logger.InfoCF("agent", "Tool calls processed, continuing to next iteration",
+			map[string]any{
+				"iteration":        iteration,
+				"message_count":    len(messages),
+				"session_key":      opts.SessionKey,
+				"tool_calls_count": len(response.ToolCalls),
+			})
 
 		// Check for steering/interruption
 		if steering, ok := al.bus.ConsumeSteeringForSession(opts.SessionKey); ok {
@@ -881,7 +940,29 @@ func (al *AgentLoop) runLLMIteration(
 				Content: fmt.Sprintf("[User interrupted]: %s", steering.Content),
 			}
 			messages = append(messages, userMsg)
+			logger.InfoCF("agent", "User interruption detected, adding steering message",
+				map[string]any{
+					"session_key": opts.SessionKey,
+				})
 			continue
+		}
+	}
+
+	logger.InfoCF("agent", "LLM iteration loop completed",
+		map[string]any{
+			"final_iteration": iteration,
+			"session_key":     opts.SessionKey,
+			"final_content":   len(finalContent),
+		})
+
+	// Final check: if we've exhausted iterations but still have content from the last response
+	if iteration >= agent.MaxIterations && finalContent == "" && len(messages) > 0 {
+		// Try to get the content from the last assistant message if available
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == "assistant" && messages[i].Content != "" {
+				finalContent = messages[i].Content
+				break
+			}
 		}
 	}
 
@@ -922,6 +1003,14 @@ func (al *AgentLoop) processToolCalls(
 	opts processOptions,
 	progressCallback ProgressCallback,
 ) ([]providers.Message, error) {
+	logger.InfoCF("agent", "Processing tool calls in sequence",
+		map[string]any{
+			"tool_call_count": len(toolCalls),
+			"session_key":     opts.SessionKey,
+			"channel":         opts.Channel,
+			"chat_id":         opts.ChatID,
+		})
+
 	// Use ToolHandler to process the tool calls
 	toolResultMessages, err := al.toolHandler.ProcessToolCalls(
 		ctx,
@@ -932,8 +1021,15 @@ func (al *AgentLoop) processToolCalls(
 		opts.SessionKey,
 	)
 	if err != nil {
+		logger.ErrorCF("agent", "Failed to process tool calls via handler", map[string]any{"error": err})
 		return nil, err
 	}
+
+	logger.InfoCF("agent", "Tool handler completed",
+		map[string]any{
+			"result_message_count": len(toolResultMessages),
+			"session_key":          opts.SessionKey,
+		})
 
 	// Handle memory sedimentation for each tool result
 	for _, toolResultMsg := range toolResultMessages {
@@ -948,8 +1044,20 @@ func (al *AgentLoop) processToolCalls(
 		// Save to session
 		if al.sessionManager != nil {
 			al.sessionManager.AddToolResult(opts.SessionKey, toolResultMsg)
+			logger.InfoCF("agent", "Saved tool result to session manager",
+				map[string]any{
+					"tool_call_id": toolResultMsg.ToolCallID,
+					"content_len":  len(toolResultMsg.Content),
+					"session_key":  opts.SessionKey,
+				})
 		} else {
 			agent.Sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
+			logger.InfoCF("agent", "Saved tool result to agent sessions",
+				map[string]any{
+					"tool_call_id": toolResultMsg.ToolCallID,
+					"content_len":  len(toolResultMsg.Content),
+					"session_key":  opts.SessionKey,
+				})
 		}
 	}
 
@@ -1051,6 +1159,14 @@ func (al *AgentLoop) callLLMWithFallback(
 	var response *providers.LLMResponse
 	var err error
 
+	logger.InfoCF("agent", "Calling LLM with tools",
+		map[string]any{
+			"tool_def_count": len(providerToolDefs),
+			"message_count":  len(messages),
+			"session_key":    opts.SessionKey,
+			"model":          agent.Model,
+		})
+
 	callLLM := func() (*providers.LLMResponse, error) {
 		if len(agent.Candidates) > 1 && al.fallback != nil {
 			fbResult, fbErr := al.fallback.Execute(ctx, agent.Candidates,
@@ -1078,14 +1194,20 @@ func (al *AgentLoop) callLLMWithFallback(
 	}
 
 	// Retry loop for context/token errors
-	maxRetries := 2
+	maxRetries := 3 // Increase retries for context overflow
 	for retry := 0; retry <= maxRetries; retry++ {
 		response, err = callLLM()
 		if err == nil {
+			logger.InfoCF("agent", "LLM call successful",
+				map[string]any{
+					"has_content":     response.Content != "",
+					"tool_call_count": len(response.ToolCalls),
+					"session_key":     opts.SessionKey,
+				})
 			break
 		}
 
-		if isContextOverflowError(err.Error()) && retry < maxRetries {
+		if isContextOverflowError(err.Error()) || strings.Contains(strings.ToLower(err.Error()), "input length should be") {
 			logger.WarnCF("agent", "Context window error detected, attempting compression", map[string]any{
 				"error": err.Error(),
 				"retry": retry,
@@ -1099,43 +1221,135 @@ func (al *AgentLoop) callLLMWithFallback(
 				})
 			}
 
-			al.forceCompression(agent, opts.SessionKey)
-			newHistory := agent.Sessions.GetHistory(opts.SessionKey)
-			newSummary := agent.Sessions.GetSummary(opts.SessionKey)
+			// Use the improved compression based on modular architecture
+			if al.sessionManager != nil {
+				al.sessionManager.ForceCompression(opts.SessionKey)
+				newHistory := al.sessionManager.GetHistory(opts.SessionKey)
+				newSummary := al.sessionManager.GetSummary(opts.SessionKey)
 
-			// IMPORTANT: Include the original user message when rebuilding messages after compression
-			// Also retrieve relevant memory context for the rebuilt messages
-			var rebuildMemoryContext string
-			if al.memoryManager != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel() // 确保取消上下文
-				_ = ctx // 显式使用ctx变量避免未使用警告
+				// Also use MessageBuilder if available
+				if al.messageBuilder != nil {
+					// Rebuild messages with the new, compressed history
+					var rebuildMemoryContext string
+					if al.memoryManager != nil {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel() // 确保取消上下文
+						_ = ctx // 显式使用ctx变量避免未使用警告
 
-				// 使用Search方法获取相关记忆上下文
-				searchResults, err := al.memoryManager.Search(opts.UserMessage, 5) // 获取最多5个相关项
-				if err != nil {
-					logger.WarnCF("memory", "Failed to search memory context during rebuild", map[string]any{"error": err})
-				} else if len(searchResults) > 0 {
-					// 将搜索结果格式化为上下文字符串
-					var contextBuilder strings.Builder
-					contextBuilder.WriteString("## Relevant Past Memories\n")
+						// 使用Search方法获取相关记忆上下文
+						searchResults, err := al.memoryManager.Search(opts.UserMessage, 5) // 获取最多5个相关项
+						if err != nil {
+							logger.WarnCF("memory", "Failed to search memory context during rebuild", map[string]any{"error": err})
+						} else if len(searchResults) > 0 {
+							// 将搜索结果格式化为上下文字符串
+							var contextBuilder strings.Builder
+							contextBuilder.WriteString("## Relevant Past Memories\n")
 
-					for i, result := range searchResults {
-						if i >= 3 { // 限制最多3个最相关项目
-							break
+							for i, result := range searchResults {
+								if i >= 3 { // 限制最多3个最相关项目
+									break
+								}
+								contextBuilder.WriteString(fmt.Sprintf("- %s\n", result.Content))
+								contextBuilder.WriteString("\n\n")
+							}
+
+							rebuildMemoryContext = contextBuilder.String()
 						}
-						contextBuilder.WriteString(fmt.Sprintf("- %s\n", result.Content))
-						contextBuilder.WriteString("\n\n")
 					}
 
-					rebuildMemoryContext = contextBuilder.String()
-				}
-			}
+					// Build messages using MessageBuilder with proper config
+					// 需要转换配置类型
+					compactionConfig := CompactionConfig{
+						ReserveTokens:       agent.CompactionConfig.ReserveTokens,
+						KeepRecentTokens:    agent.CompactionConfig.KeepRecentTokens,
+						ReserveTokensFloor:  agent.CompactionConfig.ReserveTokensFloor,
+						MemoryFlushEnabled:  agent.CompactionConfig.MemoryFlush.Enabled,
+						SoftThresholdTokens: agent.CompactionConfig.MemoryFlush.SoftThresholdTokens,
+					}
+					messages = al.messageBuilder.BuildMessagesWithConfig(
+						newHistory, newSummary, opts.UserMessage,
+						rebuildMemoryContext, "", opts.Channel, opts.ChatID,
+						compactionConfig, // 使用转换后的配置
+					)
+				} else {
+					// Fallback to the original method if MessageBuilder not available
+					al.forceCompression(agent, opts.SessionKey)
+					newHistory := agent.Sessions.GetHistory(opts.SessionKey)
+					newSummary := agent.Sessions.GetSummary(opts.SessionKey)
 
-			messages = agent.ContextBuilder.BuildMessages(
-				newHistory, newSummary, opts.UserMessage,
-				rebuildMemoryContext, nil, opts.Channel, opts.ChatID,
-			)
+					// Also retrieve relevant memory context for the rebuilt messages
+					var rebuildMemoryContext string
+					if al.memoryManager != nil {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel() // 确保取消上下文
+						_ = ctx // 显式使用ctx变量避免未使用警告
+
+						// 使用Search方法获取相关记忆上下文
+						searchResults, err := al.memoryManager.Search(opts.UserMessage, 5) // 获取最多5个相关项
+						if err != nil {
+							logger.WarnCF("memory", "Failed to search memory context during rebuild", map[string]any{"error": err})
+						} else if len(searchResults) > 0 {
+							// 将搜索结果格式化为上下文字符串
+							var contextBuilder strings.Builder
+							contextBuilder.WriteString("## Relevant Past Memories\n")
+
+							for i, result := range searchResults {
+								if i >= 3 { // 限制最多3个最相关项目
+									break
+								}
+								contextBuilder.WriteString(fmt.Sprintf("- %s\n", result.Content))
+								contextBuilder.WriteString("\n\n")
+							}
+
+							rebuildMemoryContext = contextBuilder.String()
+						}
+					}
+
+					messages = agent.ContextBuilder.BuildMessages(
+						newHistory, newSummary, opts.UserMessage,
+						rebuildMemoryContext, nil, opts.Channel, opts.ChatID,
+					)
+				}
+			} else {
+				// Original fallback method
+				al.forceCompression(agent, opts.SessionKey)
+				newHistory := agent.Sessions.GetHistory(opts.SessionKey)
+				newSummary := agent.Sessions.GetSummary(opts.SessionKey)
+
+				// IMPORTANT: Include the original user message when rebuilding messages after compression
+				// Also retrieve relevant memory context for the rebuilt messages
+				var rebuildMemoryContext string
+				if al.memoryManager != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel() // 确保取消上下文
+					_ = ctx // 显式使用ctx变量避免未使用警告
+
+					// 使用Search方法获取相关记忆上下文
+					searchResults, err := al.memoryManager.Search(opts.UserMessage, 5) // 获取最多5个相关项
+					if err != nil {
+						logger.WarnCF("memory", "Failed to search memory context during rebuild", map[string]any{"error": err})
+					} else if len(searchResults) > 0 {
+						// 将搜索结果格式化为上下文字符串
+						var contextBuilder strings.Builder
+						contextBuilder.WriteString("## Relevant Past Memories\n")
+
+						for i, result := range searchResults {
+							if i >= 3 { // 限制最多3个最相关项目
+								break
+							}
+							contextBuilder.WriteString(fmt.Sprintf("- %s\n", result.Content))
+							contextBuilder.WriteString("\n\n")
+						}
+
+						rebuildMemoryContext = contextBuilder.String()
+					}
+				}
+
+				messages = agent.ContextBuilder.BuildMessages(
+					newHistory, newSummary, opts.UserMessage,
+					rebuildMemoryContext, nil, opts.Channel, opts.ChatID,
+				)
+			}
 			continue
 		}
 		break
@@ -1151,9 +1365,23 @@ func (al *AgentLoop) createAssistantMessage(response *providers.LLMResponse) pro
 		Content: response.Content,
 	}
 
+	logger.InfoCF("agent", "Creating assistant message",
+		map[string]any{
+			"content_length": len(response.Content),
+			"tool_call_count": len(response.ToolCalls),
+			"has_content":    response.Content != "",
+			"has_tools":      len(response.ToolCalls) > 0,
+		})
+
 	// Process tool calls
 	normalizedToolCalls := make([]providers.ToolCall, 0, len(response.ToolCalls))
 	for _, tc := range response.ToolCalls {
+		logger.InfoCF("agent", "Normalizing tool call",
+			map[string]any{
+				"tool_call_id": tc.ID,
+				"tool_name":    tc.Name,
+				"arguments":    tc.Arguments,
+			})
 		normalizedToolCalls = append(normalizedToolCalls, providers.NormalizeToolCall(tc))
 	}
 
@@ -1166,7 +1394,7 @@ func (al *AgentLoop) createAssistantMessage(response *providers.LLMResponse) pro
 			thoughtSignature = tc.Function.ThoughtSignature
 		}
 
-		assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, providers.ToolCall{
+		toolCallEntry := providers.ToolCall{
 			ID:   tc.ID,
 			Type: "function",
 			Name: tc.Name,
@@ -1177,7 +1405,16 @@ func (al *AgentLoop) createAssistantMessage(response *providers.LLMResponse) pro
 			},
 			ExtraContent:     extraContent,
 			ThoughtSignature: thoughtSignature,
-		})
+		}
+
+		assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, toolCallEntry)
+
+		logger.InfoCF("agent", "Added tool call to assistant message",
+			map[string]any{
+				"tool_call_id": toolCallEntry.ID,
+				"tool_name":    toolCallEntry.Name,
+				"arguments_len": len(toolCallEntry.Function.Arguments),
+			})
 	}
 
 	return assistantMsg
@@ -1405,7 +1642,7 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 	groupedMessages := al.groupRelatedMessages(history)
 
 	// Calculate how many groups to keep (preserve tool call/result relationships)
-	keepCount := len(groupedMessages) / 2 // Keep half of the message groups
+	keepCount := len(groupedMessages) / 4 // Keep only 1/4 of the message groups for more aggressive compression
 	if keepCount < 2 {
 		keepCount = 2 // Ensure we keep at least 2 groups
 	}
@@ -1422,12 +1659,26 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 			baseContent = contentParts[0]
 		}
 		// Create updated system message with compression notice
-		compressionNotice := fmt.Sprintf("\n\n[System Note: History compressed at %s due to length. Earlier context preserved in context but truncated for current exchange.]", time.Now().Format("2006-01-02 15:04:05"))
+		compressionNotice := fmt.Sprintf("\n\n[System Note: History compressed at %s due to length. Earlier context preserved in context but truncated for current exchange. Multiple compressions applied.]", time.Now().Format("2006-01-02 15:04:05"))
 		newHistory = append(newHistory, providers.Message{
 			Role:    "system",
 			Content: baseContent + compressionNotice,
 		})
 	}
+
+	// Add remaining message groups (most recent ones)
+	startIdx := len(groupedMessages) - keepCount
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	for i := startIdx; i < len(groupedMessages); i++ {
+		newHistory = append(newHistory, groupedMessages[i]...)
+	}
+
+	// Update session with compressed history
+	agent.Sessions.SetHistory(sessionKey, newHistory)
+	agent.Sessions.Save(sessionKey)
 }
 
 // min is a helper function for integer minimum
@@ -1748,7 +1999,9 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 		if al.registry != nil {
 			defaultAgent := al.registry.GetDefaultAgent()
 			if defaultAgent != nil {
-				sessionKey := msg.Channel + "_" + msg.ChatID; defaultAgent.Sessions.SetHistory(sessionKey, []providers.Message{}); defaultAgent.Sessions.Save(sessionKey)
+				sessionKey := msg.Channel + "_" + msg.ChatID
+				defaultAgent.Sessions.SetHistory(sessionKey, []providers.Message{})
+				defaultAgent.Sessions.Save(sessionKey)
 			}
 		}
 		return "Conversation has been reset.", true
