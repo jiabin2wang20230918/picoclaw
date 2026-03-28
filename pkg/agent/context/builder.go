@@ -87,10 +87,28 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 				continue
 			}
 			last := sanitized[len(sanitized)-1]
-			if last.Role != "assistant" || len(last.ToolCalls) == 0 {
+			if last.Role == "assistant" && len(last.ToolCalls) > 0 {
+				sanitized = append(sanitized, msg)
+			} else if last.Role == "tool" {
+				// Consecutive tool result - walk back to verify valid tool call chain
+				valid := false
+				for k := len(sanitized) - 1; k >= 0; k-- {
+					if sanitized[k].Role == "assistant" {
+						valid = len(sanitized[k].ToolCalls) > 0
+						break
+					}
+					if sanitized[k].Role != "tool" {
+						break
+					}
+				}
+				if valid {
+					sanitized = append(sanitized, msg)
+				} else {
+					continue
+				}
+			} else {
 				continue
 			}
-			sanitized = append(sanitized, msg)
 
 		case "assistant":
 			if len(msg.ToolCalls) > 0 {

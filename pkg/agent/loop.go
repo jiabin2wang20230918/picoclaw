@@ -1008,6 +1008,15 @@ func (al *AgentLoop) processAndIntegrateToolCalls(
 			"session_key":                   opts.SessionKey,
 		})
 
+	// Save assistant message with tool calls to session - critical for history consistency.
+	// Without this, reloaded history has orphaned tool results (no preceding assistant+tool_calls),
+	// causing sanitizeHistoryForProvider to drop them and the LLM to repeat tool calls.
+	if al.sessionManager != nil {
+		al.sessionManager.AddToolResult(opts.SessionKey, assistantMsg)
+	} else {
+		agent.Sessions.AddFullMessage(opts.SessionKey, assistantMsg)
+	}
+
 	// Process tool calls and get results
 	toolResultMessages, err := al.processToolCalls(ctx, agent, response.ToolCalls, opts, progressCallback)
 	if err != nil {
@@ -1520,7 +1529,7 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 		_ = ctx // 显式使用ctx变量避免未使用警告
 
 		// 使用之前的对话作为查询来获取相关记忆
-		previousConversation := fmt.Sprintf("Previous conversation summary: %s, Last few exchanges: %s", summary, al.getLastExchanges(history, 3))
+		previousConversation := fmt.Sprintf("Previous conversation summary: %s, Last few exchanges: %v", summary, al.getLastExchanges(history, 3))
 		searchResults, err := al.memoryManager.Search(previousConversation, 3) // 获取最多3个相关项
 		if err != nil {
 			logger.WarnCF("memory", "Failed to search memory context during flush", map[string]any{"error": err})

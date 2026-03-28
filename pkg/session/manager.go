@@ -259,6 +259,25 @@ func (sm *SessionManager) loadSessions() error {
 			continue
 		}
 
+		// Normalize tool calls after deserialization: ToolCall.Name and
+		// ToolCall.Arguments have json:"-" tags and are lost during JSON
+		// round-trip. Restore them from the Function fields which are
+		// properly serialized.
+		for i := range session.Messages {
+			for j := range session.Messages[i].ToolCalls {
+				tc := &session.Messages[i].ToolCalls[j]
+				if tc.Name == "" && tc.Function != nil {
+					tc.Name = tc.Function.Name
+				}
+				if tc.Arguments == nil && tc.Function != nil && tc.Function.Arguments != "" {
+					var parsed map[string]any
+					if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
+						tc.Arguments = parsed
+					}
+				}
+			}
+		}
+
 		sm.sessions[session.Key] = &session
 	}
 
