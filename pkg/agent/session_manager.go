@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -145,8 +146,5 @@ func (sm *SessionManager) groupRelatedMessages(messages []providers.Message) [][
 
 // split is a helper function similar to strings.Split
 func split(s, sep string) []string {
-	// Simple implementation for now
-	// In real code, you'd want to use strings.Split
-	result := []string{s}
-	return result // Placeholder to satisfy compilation
+	return strings.Split(s, sep)
 }

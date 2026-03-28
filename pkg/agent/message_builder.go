@@ -1,10 +1,20 @@
 package agent
 
 import (
+	"strings"
 	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
+
+// CompactionConfig holds configuration for session compaction
+type CompactionConfig struct {
+	ReserveTokens        int
+	KeepRecentTokens     int
+	ReserveTokensFloor   int
+	MemoryFlushEnabled   bool
+	SoftThresholdTokens  int
+}
 
 // MessageBuilder constructs messages for LLM with proper context
 type MessageBuilder struct {
@@ -23,12 +33,95 @@ func (mb *MessageBuilder) BuildMessages(
 	summary, userMessage, memoryContext, media string,
 	channel, chatID string,
 ) []providers.Message {
-	// This would use the ContextBuilder from the agent instance
-	// For now, returning a basic implementation
-	return append(history, providers.Message{
+	// Prepare base messages
+	var messages []providers.Message
+
+	// Add system message if we have one in history
+	if len(history) > 0 && history[0].Role == "system" {
+		messages = append(messages, history[0])
+	}
+
+	// Add summary if available
+	if summary != "" {
+		summaryMsg := providers.Message{
+			Role:    "system",
+			Content: "[Conversation Summary]\n" + summary,
+		}
+		messages = append(messages, summaryMsg)
+	}
+
+	// Add memory context if available
+	if memoryContext != "" {
+		memoryMsg := providers.Message{
+			Role:    "system",
+			Content: memoryContext,
+		}
+		messages = append(messages, memoryMsg)
+	}
+
+	// Add conversation history (excluding initial system message)
+	for i := 1; i < len(history); i++ {
+		messages = append(messages, history[i])
+	}
+
+	// Add user message
+	userMsg := providers.Message{
 		Role:    "user",
 		Content: userMessage,
-	})
+	}
+	messages = append(messages, userMsg)
+
+	// Prune if necessary
+	return mb.PruneToFitTokenLimit(messages)
+}
+
+// BuildMessagesWithConfig constructs the complete message list for LLM interaction with agent config
+func (mb *MessageBuilder) BuildMessagesWithConfig(
+	history []providers.Message,
+	summary, userMessage, memoryContext, media string,
+	channel, chatID string,
+	compactionConfig CompactionConfig,
+) []providers.Message {
+	// Prepare base messages
+	var messages []providers.Message
+
+	// Add system message if we have one in history
+	if len(history) > 0 && history[0].Role == "system" {
+		messages = append(messages, history[0])
+	}
+
+	// Add summary if available
+	if summary != "" {
+		summaryMsg := providers.Message{
+			Role:    "system",
+			Content: "[Conversation Summary]\n" + summary,
+		}
+		messages = append(messages, summaryMsg)
+	}
+
+	// Add memory context if available
+	if memoryContext != "" {
+		memoryMsg := providers.Message{
+			Role:    "system",
+			Content: memoryContext,
+		}
+		messages = append(messages, memoryMsg)
+	}
+
+	// Add conversation history (excluding initial system message)
+	for i := 1; i < len(history); i++ {
+		messages = append(messages, history[i])
+	}
+
+	// Add user message
+	userMsg := providers.Message{
+		Role:    "user",
+		Content: userMessage,
+	}
+	messages = append(messages, userMsg)
+
+	// Prune if necessary using the provided config
+	return mb.PruneToFitTokenLimitWithConfig(messages, compactionConfig)
 }
 
 // EstimateTokenCount estimates the number of tokens in a message list
@@ -178,11 +271,227 @@ func (mb *MessageBuilder) GetLastExchanges(history []providers.Message, n int) [
 	return exchanges
 }
 
-// CompactionConfig holds configuration for session compaction
-type CompactionConfig struct {
-	ReserveTokens        int
-	KeepRecentTokens     int
-	ReserveTokensFloor   int
-	MemoryFlushEnabled   bool
-	SoftThresholdTokens  int
+// PruneToFitTokenLimit trims messages to fit within token limits
+func (mb *MessageBuilder) PruneToFitTokenLimit(messages []providers.Message) []providers.Message {
+	// Use conservative token limit for Kimi API to avoid "Range of input length should be [1, 260096]" error
+	// Use 200000 as a safe upper bound (about 77% of max to provide buffer for Kimi API stability)
+	const maxSafeTokens = 200000
+
+	tokenCount := mb.EstimateTokenCount(messages)
+	if tokenCount <= maxSafeTokens {
+		return messages // No pruning needed
+	}
+
+	// First, try to remove memory context if present
+	var filteredMessages []providers.Message
+	var memoryRemoved = false
+
+	for _, msg := range messages {
+		if msg.Role == "system" && strings.Contains(msg.Content, "Relevant Past Memories") {
+			memoryRemoved = true
+			continue // Skip this memory context message
+		}
+		filteredMessages = append(filteredMessages, msg)
+	}
+
+	// Check if removing memory context helped
+	if memoryRemoved {
+		tokenCount = mb.EstimateTokenCount(filteredMessages)
+		if tokenCount <= maxSafeTokens {
+			return filteredMessages
+		}
+	}
+
+	// If still over the limit, try removing all system messages except the first one
+	var reducedMessages []providers.Message
+	systemCount := 0
+	for _, msg := range filteredMessages {
+		if msg.Role == "system" {
+			if systemCount == 0 {
+				// Keep the first system message (usually contains important instructions)
+				reducedMessages = append(reducedMessages, msg)
+				systemCount++
+			}
+			// Skip other system messages (summaries, memory context, etc.)
+		} else {
+			// Keep non-system messages
+			reducedMessages = append(reducedMessages, msg)
+		}
+	}
+
+	tokenCount = mb.EstimateTokenCount(reducedMessages)
+	if tokenCount <= maxSafeTokens {
+		return reducedMessages
+	}
+
+	// If still over the limit, we need to use a more aggressive approach
+	// Use more conservative compaction config for Kimi API
+	compactionConfig := CompactionConfig{
+		ReserveTokens:       8192,
+		KeepRecentTokens:    12000,
+		ReserveTokensFloor:  10000,
+		MemoryFlushEnabled:  true,
+		SoftThresholdTokens: 2000,
+	}
+
+	prunedMessages := mb.PruneSessionMemory("temp_session", reducedMessages, compactionConfig)
+
+	// Final check - if still over limit, use simple truncation
+	tokenCount = mb.EstimateTokenCount(prunedMessages)
+	if tokenCount > maxSafeTokens {
+		// Fallback: keep only the first system message + last 5 exchanges
+		var finalMessages []providers.Message
+
+		// Keep only the first system message
+		for _, msg := range messages {
+			if msg.Role == "system" {
+				finalMessages = append(finalMessages, msg)
+				break // Only add the first system message
+			}
+		}
+
+		// Add the last exchanges
+		lastExchanges := mb.GetLastExchanges(messages, 5) // Reduced from 10 to 5
+		finalMessages = append(finalMessages, lastExchanges...)
+
+		// If still too long, just take the most recent messages
+		if mb.EstimateTokenCount(finalMessages) > maxSafeTokens {
+			// Take just the last few messages with system message
+			lastMessages := mb.getLastNMesssages(messages, 10) // Reduced from 15 to 10
+			finalMessages = lastMessages
+		}
+
+		return finalMessages
+	}
+
+	return prunedMessages
+}
+
+// getLastNMesssages gets the last N messages from the list
+func (mb *MessageBuilder) getLastNMesssages(messages []providers.Message, n int) []providers.Message {
+	if len(messages) <= n {
+		return messages
+	}
+
+	// Keep system messages but prioritize recent ones
+	var result []providers.Message
+	systemMsgs := []providers.Message{}
+	otherMsgs := []providers.Message{}
+
+	for _, msg := range messages {
+		if msg.Role == "system" {
+			systemMsgs = append(systemMsgs, msg)
+		} else {
+			otherMsgs = append(otherMsgs, msg)
+		}
+	}
+
+	// Keep all system messages (or at least the first one)
+	if len(systemMsgs) > 0 {
+		result = append(result, systemMsgs[0]) // At least the main system message
+		if len(systemMsgs) > 1 { // Include summary if available
+			for _, sysMsg := range systemMsgs[1:] {
+				if strings.Contains(sysMsg.Content, "Conversation Summary") {
+					result = append(result, sysMsg)
+					break
+				}
+			}
+		}
+	}
+
+	// Take the last N-other messages
+	startIdx := len(otherMsgs) - n
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	result = append(result, otherMsgs[startIdx:]...)
+	return result
+}
+
+// PruneToFitTokenLimitWithConfig trims messages to fit within token limits using provided configuration
+func (mb *MessageBuilder) PruneToFitTokenLimitWithConfig(messages []providers.Message, compactionConfig CompactionConfig) []providers.Message {
+	// Use conservative token limit for Kimi API to avoid "Range of input length should be [1, 260096]" error
+	// Use 200000 as a safe upper bound (about 77% of max to provide buffer for Kimi API stability)
+	const maxSafeTokens = 200000
+
+	tokenCount := mb.EstimateTokenCount(messages)
+	if tokenCount <= maxSafeTokens {
+		return messages // No pruning needed
+	}
+
+	// First, try to remove memory context if present
+	var filteredMessages []providers.Message
+	var memoryRemoved = false
+
+	for _, msg := range messages {
+		if msg.Role == "system" && strings.Contains(msg.Content, "Relevant Past Memories") {
+			memoryRemoved = true
+			continue // Skip this memory context message
+		}
+		filteredMessages = append(filteredMessages, msg)
+	}
+
+	// Check if removing memory context helped
+	if memoryRemoved {
+		tokenCount = mb.EstimateTokenCount(filteredMessages)
+		if tokenCount <= maxSafeTokens {
+			return filteredMessages
+		}
+	}
+
+	// If still over the limit, try removing all system messages except the first one
+	var reducedMessages []providers.Message
+	systemCount := 0
+	for _, msg := range filteredMessages {
+		if msg.Role == "system" {
+			if systemCount == 0 {
+				// Keep the first system message (usually contains important instructions)
+				reducedMessages = append(reducedMessages, msg)
+				systemCount++
+			}
+			// Skip other system messages (summaries, memory context, etc.)
+		} else {
+			// Keep non-system messages
+			reducedMessages = append(reducedMessages, msg)
+		}
+	}
+
+	tokenCount = mb.EstimateTokenCount(reducedMessages)
+	if tokenCount <= maxSafeTokens {
+		return reducedMessages
+	}
+
+	// If still over the limit, use the smart pruning algorithm with the actual configuration
+	prunedMessages := mb.PruneSessionMemory("temp_session", reducedMessages, compactionConfig)
+
+	// Final check - if still over limit, use simple truncation
+	tokenCount = mb.EstimateTokenCount(prunedMessages)
+	if tokenCount > maxSafeTokens {
+		// Fallback: keep only the first system message + last 5 exchanges (more aggressive)
+		var finalMessages []providers.Message
+
+		// Keep only the first system message
+		for _, msg := range messages {
+			if msg.Role == "system" {
+				finalMessages = append(finalMessages, msg)
+				break // Only add the first system message
+			}
+		}
+
+		// Add the last exchanges
+		lastExchanges := mb.GetLastExchanges(messages, 5) // Reduced from 10 to 5
+		finalMessages = append(finalMessages, lastExchanges...)
+
+		// If still too long, just take the most recent messages
+		if mb.EstimateTokenCount(finalMessages) > maxSafeTokens {
+			// Take just the last few messages with system message
+			lastMessages := mb.getLastNMesssages(messages, 10) // Reduced from 15 to 10
+			finalMessages = lastMessages
+		}
+
+		return finalMessages
+	}
+
+	return prunedMessages
 }
