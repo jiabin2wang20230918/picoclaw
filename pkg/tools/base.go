@@ -69,6 +69,15 @@ type AsyncTool interface {
 	SetCallback(cb AsyncCallback)
 }
 
+// ValidatingTool is an optional interface that tools can implement to validate
+// their arguments before execution. When validation fails, the ToolHandler
+// returns an error tool_result so the model can self-correct and retry,
+// rather than crashing or silently passing bad arguments to the tool.
+type ValidatingTool interface {
+	Tool
+	ValidateArgs(args map[string]any) error
+}
+
 func ToolToSchema(tool Tool) map[string]any {
 	return map[string]any{
 		"type": "function",

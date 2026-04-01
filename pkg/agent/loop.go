@@ -160,7 +160,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	var sessionManager *SessionManager
 	var messageBuilder *MessageBuilder
 	if defaultAgent != nil {
-		sessionManager = NewSessionManager(defaultAgent)
+		sessionManager = NewSessionManager(defaultAgent.Sessions)
 		messageBuilder = NewMessageBuilder(sessionManager)
 	} else {
 		sessionManager = nil
@@ -905,8 +905,20 @@ func (al *AgentLoop) runLLMIteration(
 				"has_tools":      len(response.ToolCalls) > 0,
 			})
 
-		// Check if no tool calls - we're done
+		// Check if no tool calls - we're done (or need continuation)
 		if len(response.ToolCalls) == 0 {
+			// Detect output truncation and attempt continuation before exiting.
+			if response.FinishReason == "max_tokens" || response.FinishReason == "length" {
+				logger.WarnCF("agent", "Output truncated by max_tokens, attempting continuation",
+					map[string]any{
+						"iteration":     iteration,
+						"session_key":   opts.SessionKey,
+						"content_len":   len(response.Content),
+						"finish_reason": response.FinishReason,
+					})
+				finalContent = al.handleOutputTruncation(ctx, agent, messages, response, opts)
+				break
+			}
 			logger.InfoCF("agent", "No tool calls, exiting iteration loop",
 				map[string]any{
 					"iteration":   iteration,
@@ -980,6 +992,88 @@ func (al *AgentLoop) runLLMIteration(
 	}
 
 	return finalContent, iteration, nil
+}
+
+// handleOutputTruncation handles the case where the LLM output was cut off due to
+// max_tokens limit. It injects a continuation prompt and re-calls the LLM, merging
+// the partial outputs into one complete response. At most maxContinuations rounds
+// are attempted; any failure returns whatever has been accumulated so far.
+func (al *AgentLoop) handleOutputTruncation(
+	ctx context.Context,
+	agent *AgentInstance,
+	messages []providers.Message,
+	response *providers.LLMResponse,
+	opts processOptions,
+) string {
+	const maxContinuations = 3
+	accumulated := response.Content
+
+	for i := 0; i < maxContinuations; i++ {
+		// Append the (partial) assistant turn and a user continuation prompt.
+		messages = append(messages,
+			providers.Message{Role: "assistant", Content: accumulated},
+			providers.Message{Role: "user", Content: "Please continue from where you left off."},
+		)
+
+		// Prune to avoid context overflow before the continuation call.
+		// Drop the oldest non-system messages until we are under the limit.
+		messages = al.pruneOldestForContinuation(messages, agent)
+
+		nextResp, err := al.callLLMWithFallback(ctx, agent, messages, agent.Tools.ToProviderDefs(), opts)
+		if err != nil {
+			logger.WarnCF("agent", "Continuation call failed, returning accumulated content",
+				map[string]any{"error": err, "continuation": i + 1, "session_key": opts.SessionKey})
+			break
+		}
+
+		accumulated += nextResp.Content
+		logger.InfoCF("agent", "Continuation succeeded",
+			map[string]any{
+				"continuation":  i + 1,
+				"added_len":     len(nextResp.Content),
+				"total_len":     len(accumulated),
+				"finish_reason": nextResp.FinishReason,
+				"session_key":   opts.SessionKey,
+			})
+
+		if nextResp.FinishReason != "max_tokens" && nextResp.FinishReason != "length" {
+			break // Natural stop - no more truncation
+		}
+	}
+
+	return accumulated
+}
+
+// pruneOldestForContinuation removes the oldest non-system messages from the message
+// list until the estimated token count is safely below the agent's context limit.
+// This ensures there is room in the context window for the continuation call.
+func (al *AgentLoop) pruneOldestForContinuation(messages []providers.Message, agent *AgentInstance) []providers.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	// Use 80% of max context as a safe target to leave room for the response.
+	targetTokens := al.estimateTokens(messages) * 4 / 5
+	if agent.CompactionConfig.ReserveTokens > 0 {
+		targetTokens = agent.CompactionConfig.ReserveTokens * 10 // rough conversion from tokens
+	}
+
+	for len(messages) > 2 && al.estimateTokens(messages) > targetTokens {
+		// Find the first non-system message to drop (keep messages[0] which is system).
+		dropped := false
+		for i := 1; i < len(messages)-2; i++ { // keep at least the last 2 messages (continuation pair)
+			if messages[i].Role != "system" {
+				messages = append(messages[:i], messages[i+1:]...)
+				dropped = true
+				break
+			}
+		}
+		if !dropped {
+			break // Nothing left to drop
+		}
+	}
+
+	return messages
 }
 
 // processAndIntegrateToolCalls handles tool execution and integrates results back to the conversation
@@ -1738,12 +1832,23 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 		})
 	}
 
-	// Add remaining message groups (most recent ones)
+	// Collapse dropped groups into compact summary messages instead of discarding them.
+	// This retains a trace of past activity without the full token cost.
 	startIdx := len(groupedMessages) - keepCount
 	if startIdx < 0 {
 		startIdx = 0
 	}
 
+	for i := 0; i < startIdx; i++ {
+		if summary := collapseGroup(groupedMessages[i]); summary != "" {
+			newHistory = append(newHistory, providers.Message{
+				Role:    "system",
+				Content: "[Collapsed] " + summary,
+			})
+		}
+	}
+
+	// Append the most recent groups in full.
 	for i := startIdx; i < len(groupedMessages); i++ {
 		newHistory = append(newHistory, groupedMessages[i]...)
 	}
@@ -1751,6 +1856,36 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 	// Update session with compressed history
 	agent.Sessions.SetHistory(sessionKey, newHistory)
 	agent.Sessions.Save(sessionKey)
+}
+
+// collapseGroup condenses a group of related messages into a single summary line.
+// The result is used as a lightweight stand-in for the full message group when
+// compressing history, preserving key information without the full token cost.
+func collapseGroup(group []providers.Message) string {
+	var parts []string
+	for _, msg := range group {
+		switch msg.Role {
+		case "user":
+			parts = append(parts, "User: "+utils.Truncate(msg.Content, 80))
+		case "assistant":
+			if len(msg.ToolCalls) > 0 {
+				names := make([]string, 0, len(msg.ToolCalls))
+				for _, tc := range msg.ToolCalls {
+					names = append(names, tc.Name)
+				}
+				parts = append(parts, "Called: ["+strings.Join(names, ", ")+"]")
+			} else if msg.Content != "" {
+				parts = append(parts, "Assistant: "+utils.Truncate(msg.Content, 80))
+			}
+		case "tool":
+			id := msg.ToolCallID
+			if len(id) > 8 {
+				id = id[:8]
+			}
+			parts = append(parts, fmt.Sprintf("Tool(%s): %s", id, utils.Truncate(msg.Content, 60)))
+		}
+	}
+	return strings.Join(parts, " → ")
 }
 
 // min is a helper function for integer minimum

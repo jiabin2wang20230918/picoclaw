@@ -1,150 +1,231 @@
 package agent
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/agent/interfaces"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	session "github.com/sipeed/picoclaw/pkg/session"
+	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
-// SessionManager handles all session-related operations
+// SessionManager wraps the low-level session.SessionManager and provides the
+// higher-level interface used by the agent loop (and satisfies interfaces.SessionManager
+// so it can be passed to orchestrator components when the modular path is active).
 type SessionManager struct {
-	agent *AgentInstance
+	sessions *session.SessionManager
 }
 
-func NewSessionManager(agent *AgentInstance) *SessionManager {
-	return &SessionManager{
-		agent: agent,
+// NewSessionManager creates a SessionManager backed by the given low-level manager.
+// Passing agent.Sessions directly decouples the manager from any single AgentInstance,
+// making multi-agent routing safe.
+func NewSessionManager(sessions *session.SessionManager) *SessionManager {
+	return &SessionManager{sessions: sessions}
+}
+
+// ---------------------------------------------------------------------------
+// interfaces.SessionManager implementation
+// ---------------------------------------------------------------------------
+
+// UpdateSession applies a SessionUpdated event (history + optional summary).
+func (sm *SessionManager) UpdateSession(_ context.Context, event *interfaces.SessionUpdated) error {
+	sm.sessions.SetHistory(event.SessionKey, event.History)
+	if event.Summary != "" {
+		sm.sessions.SetSummary(event.SessionKey, event.Summary)
 	}
+	return sm.sessions.Save(event.SessionKey)
 }
 
-// AddUserMessage adds a user message to the session
-func (sm *SessionManager) AddUserMessage(sessionKey, content string) {
-	sm.agent.Sessions.AddMessage(sessionKey, "user", content)
-}
-
-// AddAssistantMessage adds an assistant message to the session
-func (sm *SessionManager) AddAssistantMessage(sessionKey, content string) {
-	sm.agent.Sessions.AddMessage(sessionKey, "assistant", content)
-}
-
-// AddToolResult adds a tool result message to the session
-func (sm *SessionManager) AddToolResult(sessionKey string, msg providers.Message) {
-	sm.agent.Sessions.AddFullMessage(sessionKey, msg)
-}
-
-// GetHistory retrieves the session history
+// GetHistory returns the message history for the session.
 func (sm *SessionManager) GetHistory(sessionKey string) []providers.Message {
-	return sm.agent.Sessions.GetHistory(sessionKey)
+	return sm.sessions.GetHistory(sessionKey)
 }
 
-// GetSummary retrieves the session summary
+// GetSummary returns the conversation summary for the session.
 func (sm *SessionManager) GetSummary(sessionKey string) string {
-	return sm.agent.Sessions.GetSummary(sessionKey)
+	return sm.sessions.GetSummary(sessionKey)
 }
 
-// Save saves the session state
-func (sm *SessionManager) Save(sessionKey string) {
-	sm.agent.Sessions.Save(sessionKey)
+// AddMessage appends a simple role/content message to the session.
+func (sm *SessionManager) AddMessage(sessionKey, role, content string) {
+	sm.sessions.AddMessage(sessionKey, role, content)
 }
 
-// ForceCompression compresses the session history when it exceeds limits
+// AddFullMessage appends a complete message (including tool call fields) to the session.
+func (sm *SessionManager) AddFullMessage(sessionKey string, msg providers.Message) {
+	sm.sessions.AddFullMessage(sessionKey, msg)
+}
+
+// SetSummary updates the conversation summary for the session.
+func (sm *SessionManager) SetSummary(sessionKey string, summary string) {
+	sm.sessions.SetSummary(sessionKey, summary)
+}
+
+// TruncateHistory keeps only the last keepLast messages.
+func (sm *SessionManager) TruncateHistory(sessionKey string, keepLast int) {
+	sm.sessions.TruncateHistory(sessionKey, keepLast)
+}
+
+// Save persists the session to disk.
+func (sm *SessionManager) Save(sessionKey string) error {
+	return sm.sessions.Save(sessionKey)
+}
+
+// SetHistory replaces the entire message history for the session.
+func (sm *SessionManager) SetHistory(sessionKey string, history []providers.Message) {
+	sm.sessions.SetHistory(sessionKey, history)
+}
+
+// ---------------------------------------------------------------------------
+// Convenience helpers used by the agent loop
+// ---------------------------------------------------------------------------
+
+// AddUserMessage is a convenience wrapper around AddMessage for user turns.
+func (sm *SessionManager) AddUserMessage(sessionKey, content string) {
+	sm.sessions.AddMessage(sessionKey, "user", content)
+}
+
+// AddAssistantMessage is a convenience wrapper around AddMessage for assistant turns.
+func (sm *SessionManager) AddAssistantMessage(sessionKey, content string) {
+	sm.sessions.AddMessage(sessionKey, "assistant", content)
+}
+
+// AddToolResult appends a tool-result message (which carries ToolCallID) to the session.
+func (sm *SessionManager) AddToolResult(sessionKey string, msg providers.Message) {
+	sm.sessions.AddFullMessage(sessionKey, msg)
+}
+
+// ---------------------------------------------------------------------------
+// Context compression
+// ---------------------------------------------------------------------------
+
+// ForceCompression aggressively compresses the session history when the context
+// window is exceeded. It groups messages by tool-call relationships, collapses
+// the oldest 75 % of groups into compact summary lines, and keeps the most
+// recent 25 % of groups verbatim. This matches the strategy used by
+// AgentLoop.forceCompression and supersedes the older half-keep approach.
 func (sm *SessionManager) ForceCompression(sessionKey string) {
-	history := sm.GetHistory(sessionKey)
+	history := sm.sessions.GetHistory(sessionKey)
 	if len(history) <= 4 {
 		return
 	}
 
-	// Implementation moved from loop.go
-	// Identify tool call-result pairs to preserve
-	// Group messages by tool call relationships to maintain integrity
-	groupedMessages := sm.groupRelatedMessages(history)
+	grouped := smGroupRelatedMessages(history)
 
-	// Calculate how many groups to keep (preserve tool call/result relationships)
-	keepCount := len(groupedMessages) / 2 // Keep half of the message groups
+	// Keep the most recent 25 % of groups (at least 2).
+	keepCount := len(grouped) / 4
 	if keepCount < 2 {
-		keepCount = 2 // Ensure we keep at least 2 groups
+		keepCount = 2
 	}
-
-	// Start with system message if present, then take the most recent groups
-	var newHistory []providers.Message
-
-	// Preserve system message at the beginning
-	if len(history) > 0 && history[0].Role == "system" {
-		// Extract any compression notes that might already be present
-		var baseContent string
-		contentParts := split(history[0].Content, "\n\n[System Note:")
-		if len(contentParts) > 0 {
-			baseContent = contentParts[0]
-		}
-		// Create updated system message with compression notice
-		compressionNotice := "[System Note: History compressed at " + time.Now().Format("2006-01-02 15:04:05") + " due to length. Earlier context preserved in context but truncated for current exchange.]"
-		newHistory = append(newHistory, providers.Message{
-			Role:    "system",
-			Content: baseContent + "\n\n" + compressionNotice,
-		})
-	}
-
-	// Add remaining message groups
-	startIdx := len(groupedMessages) - keepCount
+	startIdx := len(grouped) - keepCount
 	if startIdx < 0 {
 		startIdx = 0
 	}
 
-	for i := startIdx; i < len(groupedMessages); i++ {
-		newHistory = append(newHistory, groupedMessages[i]...)
+	var newHistory []providers.Message
+
+	// Preserve system message with a compression notice.
+	if len(history) > 0 && history[0].Role == "system" {
+		baseContent := strings.SplitN(history[0].Content, "\n\n[System Note:", 2)[0]
+		notice := fmt.Sprintf(
+			"\n\n[System Note: History compressed at %s due to length. Earlier context collapsed.]",
+			time.Now().Format("2006-01-02 15:04:05"),
+		)
+		newHistory = append(newHistory, providers.Message{
+			Role:    "system",
+			Content: baseContent + notice,
+		})
 	}
 
-	// Update session with compressed history
-	sm.agent.Sessions.SetHistory(sessionKey, newHistory)
-	sm.Save(sessionKey)
+	// Collapse dropped groups into compact one-line summaries.
+	for i := 0; i < startIdx; i++ {
+		if summary := smCollapseGroup(grouped[i]); summary != "" {
+			newHistory = append(newHistory, providers.Message{
+				Role:    "system",
+				Content: "[Collapsed] " + summary,
+			})
+		}
+	}
+
+	// Append the most recent groups verbatim.
+	for i := startIdx; i < len(grouped); i++ {
+		newHistory = append(newHistory, grouped[i]...)
+	}
+
+	sm.sessions.SetHistory(sessionKey, newHistory)
+	_ = sm.sessions.Save(sessionKey)
 }
 
-// groupRelatedMessages groups messages by their relationships (especially tool call-result pairs)
-func (sm *SessionManager) groupRelatedMessages(messages []providers.Message) [][]providers.Message {
+// smGroupRelatedMessages groups a message slice by tool-call relationships so
+// that assistant+tool_result pairs are never split across groups.
+func smGroupRelatedMessages(messages []providers.Message) [][]providers.Message {
 	var groups [][]providers.Message
-	var currentGroup []providers.Message
+	var current []providers.Message
 
 	for i, msg := range messages {
-		currentGroup = append(currentGroup, msg)
+		current = append(current, msg)
 
-		// If this is a tool message, close the group
-		if msg.Role == "tool" {
-			// Find the corresponding assistant message that initiated the tool call
-			for j := len(currentGroup) - 1; j >= 0; j-- {
-				if currentGroup[j].Role == "assistant" && len(currentGroup[j].ToolCalls) > 0 {
-					// Check if any of the assistant's tool calls matches this tool's call ID
-					for _, tc := range currentGroup[j].ToolCalls {
+		switch {
+		case msg.Role == "tool":
+			// Close the group when the last tool result for an assistant turn arrives.
+			for j := len(current) - 1; j >= 0; j-- {
+				if current[j].Role == "assistant" && len(current[j].ToolCalls) > 0 {
+					for _, tc := range current[j].ToolCalls {
 						if tc.ID == msg.ToolCallID {
-							groups = append(groups, currentGroup)
-							currentGroup = []providers.Message{}
+							groups = append(groups, current)
+							current = nil
 							break
 						}
 					}
 					break
 				}
 			}
-		} else if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			// Wait for the corresponding tool results
-			continue
-		} else {
-			// For user/system messages, close the group if it's not part of a tool call chain
+
+		case msg.Role == "assistant" && len(msg.ToolCalls) > 0:
+			// Wait for the matching tool results before closing.
+
+		default:
+			// User / system messages close the group unless the next message is a tool result.
 			if i+1 < len(messages) && messages[i+1].Role != "tool" {
-				groups = append(groups, currentGroup)
-				currentGroup = []providers.Message{}
+				groups = append(groups, current)
+				current = nil
 			}
 		}
 	}
 
-	// Add remaining messages as a group
-	if len(currentGroup) > 0 {
-		groups = append(groups, currentGroup)
+	if len(current) > 0 {
+		groups = append(groups, current)
 	}
-
 	return groups
 }
 
-// split is a helper function similar to strings.Split
-func split(s, sep string) []string {
-	return strings.Split(s, sep)
+// smCollapseGroup condenses a message group into a single human-readable line.
+func smCollapseGroup(group []providers.Message) string {
+	var parts []string
+	for _, msg := range group {
+		switch msg.Role {
+		case "user":
+			parts = append(parts, "User: "+utils.Truncate(msg.Content, 80))
+		case "assistant":
+			if len(msg.ToolCalls) > 0 {
+				names := make([]string, 0, len(msg.ToolCalls))
+				for _, tc := range msg.ToolCalls {
+					names = append(names, tc.Name)
+				}
+				parts = append(parts, "Called: ["+strings.Join(names, ", ")+"]")
+			} else if msg.Content != "" {
+				parts = append(parts, "Assistant: "+utils.Truncate(msg.Content, 80))
+			}
+		case "tool":
+			id := msg.ToolCallID
+			if len(id) > 8 {
+				id = id[:8]
+			}
+			parts = append(parts, fmt.Sprintf("Tool(%s): %s", id, utils.Truncate(msg.Content, 60)))
+		}
+	}
+	return strings.Join(parts, " → ")
 }

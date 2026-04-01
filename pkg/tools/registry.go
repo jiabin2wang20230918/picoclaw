@@ -34,6 +34,18 @@ func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	return tool, ok
 }
 
+// GetAsValidating returns the tool as a ValidatingTool if it implements the interface.
+func (r *ToolRegistry) GetAsValidating(name string) (ValidatingTool, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	tool, ok := r.tools[name]
+	if !ok {
+		return nil, false
+	}
+	vt, ok := tool.(ValidatingTool)
+	return vt, ok
+}
+
 func (r *ToolRegistry) Execute(ctx context.Context, name string, args map[string]any) *ToolResult {
 	return r.ExecuteWithContext(ctx, name, args, "", "", nil)
 }
