@@ -369,7 +369,7 @@ func (a *PicoClawACP) handlePrompt(params json.RawMessage) (interface{}, error) 
 	log.Printf("[picoclaw-acp] received user message: %.100s", userMessage)
 
 	// Process the message with PicoClaw
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 
 	// Use a fixed session key based on the ACP session ID

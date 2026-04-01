@@ -40,7 +40,7 @@ func NewProvider(apiKey, apiBase, proxy string) *Provider {
 
 func NewProviderWithMaxTokensField(apiKey, apiBase, proxy, maxTokensField string) *Provider {
 	client := &http.Client{
-		Timeout: 120 * time.Second,
+		Timeout: 300 * time.Second,
 	}
 
 	if proxy != "" {

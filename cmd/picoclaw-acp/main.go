@@ -48,14 +48,30 @@ func main() {
 	// Set up message bus
 	msgBus := bus.NewMessageBus()
 
-	// Create LLM provider
-	if len(cfg.ModelList) == 0 {
-		log.Fatalf("No models configured in config")
+	// Find the default model in ModelList to get the correct configuration and actual model name
+	var defaultModelConfig *config.ModelConfig
+	defaultModelName := cfg.Agents.Defaults.Model
+
+	// Look for the default model in the model list
+	for i := range cfg.ModelList {
+		if cfg.ModelList[i].ModelName == defaultModelName {
+			defaultModelConfig = &cfg.ModelList[i]
+			break
+		}
 	}
-	provider, _, err := providers.CreateProviderFromConfig(&cfg.ModelList[0]) // Use first model
+
+	if defaultModelConfig == nil {
+		log.Fatalf("Default model '%s' not found in model_list", defaultModelName)
+	}
+
+	provider, actualModel, err := providers.CreateProviderFromConfig(defaultModelConfig)
 	if err != nil {
 		log.Fatalf("Failed to create provider: %v", err)
 	}
+
+	// Update the default model in the config to use the actual model identifier for API calls
+	// This ensures that AgentInstance uses the correct model name for API requests
+	cfg.Agents.Defaults.Model = actualModel
 
 	// Create agent loop
 	loop := agent.NewAgentLoop(cfg, msgBus, provider)
