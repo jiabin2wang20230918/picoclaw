@@ -2061,26 +2061,40 @@ func hasRecentToolActivity(messages []providers.Message, recentCount int) bool {
 }
 
 // isContextOverflowError detects various forms of context overflow errors from different LLM providers
+// IMPORTANT: It must NOT match Go standard library context errors (context deadline exceeded, context canceled)
+// which indicate HTTP/request timeouts, not LLM context window issues.
 func isContextOverflowError(errorStr string) bool {
 	lowerError := strings.ToLower(errorStr)
 
-	// Basic token/context related errors
-	if strings.Contains(lowerError, "token") ||
-		strings.Contains(lowerError, "context") ||
-		strings.Contains(lowerError, "maximum") ||
-		strings.Contains(lowerError, "length") ||
-		strings.Contains(lowerError, "truncate") {
-		return true
+	// First, exclude Go standard library context errors (these are timeout/cancellation errors)
+	// "context deadline exceeded" - HTTP request or operation timeout
+	// "context canceled" - operation was canceled
+	if strings.Contains(lowerError, "context deadline exceeded") ||
+		strings.Contains(lowerError, "context canceled") {
+		return false
 	}
 
-	// Specific provider error messages
+	// Specific provider error messages for context overflow
 	contextKeywords := []string{
+		"context_length_exceeded",
+		"context length exceeded",
 		"max_tokens_exceeded",
-		"context_length",
+		"max tokens exceeded",
+		"token_limit_exceeded",
+		"token limit exceeded",
 		"input_too_long",
+		"input too long",
 		"request_too_large",
+		"request too large",
 		"model_input_too_long",
+		"model input too long",
 		"exceeds maximum",
+		"exceeds context",
+		"context window",
+		"maximum context",
+		"max context",
+		"token limit",
+		"length limit",
 	}
 
 	for _, keyword := range contextKeywords {
