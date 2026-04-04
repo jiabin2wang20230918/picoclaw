@@ -16,14 +16,16 @@ type CompactionConfig struct {
 	SoftThresholdTokens  int
 }
 
-// MessageBuilder constructs messages for LLM with proper context
+// MessageBuilder is the primary runtime entrypoint for provider message assembly.
+// It delegates canonical base-context construction to ContextBuilder, then applies
+// token-budget and compaction policies on top.
 type MessageBuilder struct {
-	sessionManager *SessionManager
+	contextBuilder *ContextBuilder
 }
 
-func NewMessageBuilder(sessionManager *SessionManager) *MessageBuilder {
+func NewMessageBuilder(contextBuilder *ContextBuilder) *MessageBuilder {
 	return &MessageBuilder{
-		sessionManager: sessionManager,
+		contextBuilder: contextBuilder,
 	}
 }
 
@@ -33,45 +35,7 @@ func (mb *MessageBuilder) BuildMessages(
 	summary, userMessage, memoryContext, media string,
 	channel, chatID string,
 ) []providers.Message {
-	// Prepare base messages
-	var messages []providers.Message
-
-	// Add system message if we have one in history
-	if len(history) > 0 && history[0].Role == "system" {
-		messages = append(messages, history[0])
-	}
-
-	// Add summary if available
-	if summary != "" {
-		summaryMsg := providers.Message{
-			Role:    "system",
-			Content: "[Conversation Summary]\n" + summary,
-		}
-		messages = append(messages, summaryMsg)
-	}
-
-	// Add memory context if available
-	if memoryContext != "" {
-		memoryMsg := providers.Message{
-			Role:    "system",
-			Content: memoryContext,
-		}
-		messages = append(messages, memoryMsg)
-	}
-
-	// Add conversation history (excluding initial system message)
-	for i := 1; i < len(history); i++ {
-		messages = append(messages, history[i])
-	}
-
-	// Add user message
-	userMsg := providers.Message{
-		Role:    "user",
-		Content: userMessage,
-	}
-	messages = append(messages, userMsg)
-
-	// Prune if necessary
+	messages := mb.composeMessages(history, summary, userMessage, memoryContext, channel, chatID)
 	return mb.PruneToFitTokenLimit(messages)
 }
 
@@ -82,46 +46,27 @@ func (mb *MessageBuilder) BuildMessagesWithConfig(
 	channel, chatID string,
 	compactionConfig CompactionConfig,
 ) []providers.Message {
-	// Prepare base messages
-	var messages []providers.Message
-
-	// Add system message if we have one in history
-	if len(history) > 0 && history[0].Role == "system" {
-		messages = append(messages, history[0])
-	}
-
-	// Add summary if available
-	if summary != "" {
-		summaryMsg := providers.Message{
-			Role:    "system",
-			Content: "[Conversation Summary]\n" + summary,
-		}
-		messages = append(messages, summaryMsg)
-	}
-
-	// Add memory context if available
-	if memoryContext != "" {
-		memoryMsg := providers.Message{
-			Role:    "system",
-			Content: memoryContext,
-		}
-		messages = append(messages, memoryMsg)
-	}
-
-	// Add conversation history (excluding initial system message)
-	for i := 1; i < len(history); i++ {
-		messages = append(messages, history[i])
-	}
-
-	// Add user message
-	userMsg := providers.Message{
-		Role:    "user",
-		Content: userMessage,
-	}
-	messages = append(messages, userMsg)
-
-	// Prune if necessary using the provided config
+	messages := mb.composeMessages(history, summary, userMessage, memoryContext, channel, chatID)
 	return mb.PruneToFitTokenLimitWithConfig(messages, compactionConfig)
+}
+
+func (mb *MessageBuilder) composeMessages(
+	history []providers.Message,
+	summary, userMessage, memoryContext, channel, chatID string,
+) []providers.Message {
+	if mb.contextBuilder == nil {
+		return nil
+	}
+
+	return mb.contextBuilder.AssembleBaseMessages(
+		history,
+		summary,
+		userMessage,
+		memoryContext,
+		nil,
+		channel,
+		chatID,
+	)
 }
 
 // EstimateTokenCount estimates the number of tokens in a message list

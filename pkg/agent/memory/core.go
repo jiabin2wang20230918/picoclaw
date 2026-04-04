@@ -4,6 +4,7 @@ package memory
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"sync"
 
@@ -53,7 +54,11 @@ func (mc *MemoryCore) initConfidenceDB() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			confidence REAL DEFAULT 1.0,
-			last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP
+			last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP,
+			memory_type TEXT DEFAULT 'artifact',
+			source_key TEXT DEFAULT '',
+			tags_json TEXT DEFAULT '[]',
+			reason TEXT DEFAULT ''
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS memory_relations (
@@ -77,24 +82,126 @@ func (mc *MemoryCore) initConfidenceDB() error {
 		}
 	}
 
+	for _, columnDef := range []string{
+		"memory_type TEXT DEFAULT 'artifact'",
+		"source_key TEXT DEFAULT ''",
+		"tags_json TEXT DEFAULT '[]'",
+		"reason TEXT DEFAULT ''",
+	} {
+		if err := mc.ensureColumn("memory_items", columnDef); err != nil {
+			return err
+		}
+	}
+
+	if _, err := mc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_items_type ON memory_items(memory_type)`); err != nil {
+		return err
+	}
+	if _, err := mc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_items_source_key ON memory_items(source_key)`); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (mc *MemoryCore) ensureColumn(tableName string, columnDef string) error {
+	columnName := columnDef
+	if idx := len(columnDef); idx > 0 {
+		for i, r := range columnDef {
+			if r == ' ' || r == '\t' {
+				columnName = columnDef[:i]
+				break
+			}
+		}
+	}
+
+	rows, err := mc.db.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notNull int
+		var dfltValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
+			return err
+		}
+		if name == columnName {
+			return nil
+		}
+	}
+
+	_, err = mc.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", tableName, columnDef))
+	return err
 }
 
 // Save saves content to memory and creates/updates index entry
 func (mc *MemoryCore) Save(key, content string) error {
+	record := MemoryRecord{
+		Key:       key,
+		Content:   content,
+		Type:      MemoryTypeArtifact,
+		SourceKey: key,
+	}
+
+	var existingType, existingSourceKey, existingTagsJSON, existingReason string
+	err := mc.db.QueryRow(
+		"SELECT memory_type, source_key, tags_json, reason FROM memory_items WHERE key = ?",
+		key,
+	).Scan(&existingType, &existingSourceKey, &existingTagsJSON, &existingReason)
+	if err == nil {
+		record.Type = normalizeMemoryType(MemoryType(existingType))
+		record.SourceKey = existingSourceKey
+		record.Tags = tagsFromJSON(existingTagsJSON)
+		record.Reason = existingReason
+	}
+
+	return mc.SaveRecord(MemoryRecord{
+		Key:       record.Key,
+		Content:   record.Content,
+		Type:      record.Type,
+		SourceKey: record.SourceKey,
+		Tags:      record.Tags,
+		Reason:    record.Reason,
+	})
+}
+
+// SaveRecord stores content with structured metadata.
+func (mc *MemoryCore) SaveRecord(record MemoryRecord) error {
 	mc.mutex.Lock()
 	defer mc.mutex.Unlock()
 
+	record.Type = normalizeMemoryType(record.Type)
+
 	// Insert or update memory item with initial confidence
 	query := `
-	INSERT INTO memory_items (key, content, confidence, last_accessed)
-	VALUES (?, ?, 1.0, datetime('now'))
+	INSERT INTO memory_items (key, content, confidence, last_accessed, memory_type, source_key, tags_json, reason)
+	VALUES (?, ?, 1.0, datetime('now'), ?, ?, ?, ?)
 	ON CONFLICT(key) DO UPDATE SET
 		content = excluded.content,
 		updated_at = excluded.updated_at,
-		last_accessed = excluded.last_accessed`
+		last_accessed = excluded.last_accessed,
+		memory_type = excluded.memory_type,
+		source_key = excluded.source_key,
+		tags_json = excluded.tags_json,
+		reason = excluded.reason`
 
-	_, err := mc.db.Exec(query, key, content)
+	sourceKey := record.SourceKey
+	if sourceKey == "" {
+		sourceKey = record.Key
+	}
+	_, err := mc.db.Exec(
+		query,
+		record.Key,
+		record.Content,
+		string(record.Type),
+		sourceKey,
+		tagsToJSON(record.Tags),
+		record.Reason,
+	)
 	return err
 }
 

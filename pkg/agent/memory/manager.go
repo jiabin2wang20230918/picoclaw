@@ -127,6 +127,15 @@ func (mm *MemoryManager) Save(key, content string) error {
 	return mm.tree.Save(key, content)
 }
 
+// SaveRecord stores structured memory content with metadata.
+func (mm *MemoryManager) SaveRecord(record MemoryRecord) error {
+	if mm.tree == nil {
+		return fmt.Errorf("memory system not initialized")
+	}
+
+	return mm.tree.SaveRecord(record)
+}
+
 // Read retrieves content from memory and updates access metrics
 func (mm *MemoryManager) Read(key string) (string, error) {
 	if mm.tree == nil {
@@ -170,6 +179,15 @@ func (mm *MemoryManager) SedimentKnowledge(content, sourceKey string) error {
 	}
 
 	return mm.tree.SedimentKnowledge(content, sourceKey)
+}
+
+// SedimentKnowledgeWithType stores knowledge with an explicit top-level memory type.
+func (mm *MemoryManager) SedimentKnowledgeWithType(content, sourceKey string, memoryType MemoryType) error {
+	if mm.tree == nil {
+		return fmt.Errorf("memory system not initialized")
+	}
+
+	return mm.tree.SedimentKnowledgeWithType(content, sourceKey, memoryType)
 }
 
 // GetConfidence returns the confidence score for a memory item

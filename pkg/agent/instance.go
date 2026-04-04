@@ -26,7 +26,9 @@ type AgentInstance struct {
 	ContextWindow  int
 	Provider       providers.LLMProvider
 	Sessions       *session.SessionManager
+	SessionManager *SessionManager
 	ContextBuilder *ContextBuilder
+	MessageBuilder *MessageBuilder
 	Tools          *tools.ToolRegistry
 	Subagents      *config.SubagentsConfig
 	SkillsFilter   []string
@@ -70,9 +72,11 @@ func NewAgentInstance(
 
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessionsManager := session.NewSessionManager(sessionsDir)
+	agentSessionManager := NewSessionManager(sessionsManager)
 
 	contextBuilder := NewContextBuilder(workspace)
 	contextBuilder.SetToolsRegistry(toolsRegistry)
+	messageBuilder := NewMessageBuilder(contextBuilder)
 
 	agentID := routing.DefaultAgentID
 	agentName := ""
@@ -120,7 +124,9 @@ func NewAgentInstance(
 		ContextWindow:  maxTokens,
 		Provider:       provider,
 		Sessions:       sessionsManager,
+		SessionManager: agentSessionManager,
 		ContextBuilder: contextBuilder,
+		MessageBuilder: messageBuilder,
 		Tools:          toolsRegistry,
 		Subagents:      subagents,
 		SkillsFilter:   skillsFilter,

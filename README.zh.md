@@ -80,6 +80,13 @@
 
 <img src="assets/compare.jpg" alt="PicoClaw" width="512">
 
+## 🏗️ 架构
+
+关于当前运行时架构与实际执行链路，请参阅：
+
+- [运行时架构说明](docs/modular-architecture-enhancements.md)
+- [架构图](docs/architecture-diagram.txt)
+
 ## 🦾 演示
 
 ### 🛠️ 标准助手工作流
@@ -318,15 +325,15 @@ PicoClaw 将数据存储在您配置的工作区中（默认：`~/.picoclaw/work
 ```
 ~/.picoclaw/workspace/
 ├── sessions/          # 对话会话和历史
-├── memory/           # 长期记忆 (MEMORY.md)
+├── memory/           # 长期记忆与每日笔记
 ├── state/            # 持久化状态 (最后一次频道等)
 ├── cron/             # 定时任务数据库
 ├── skills/           # 自定义技能
-├── AGENTS.md         # Agent 行为指南
+├── context.json      # 可选的 bootstrap context 清单
+├── AGENT.md          # Agent 行为指南
 ├── HEARTBEAT.md      # 周期性任务提示词 (每 30 分钟检查一次)
 ├── IDENTITY.md       # Agent 身份设定
 ├── SOUL.md           # Agent 灵魂/性格
-├── TOOLS.md          # 工具描述
 └── USER.md           # 用户偏好
 
 ```

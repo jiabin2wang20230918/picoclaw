@@ -14,7 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/agent/memory"
 	"github.com/sipeed/picoclaw/pkg/bus"
@@ -38,15 +37,14 @@ type AgentLoop struct {
 	memoryManager  *memory.MemoryManager  // 新增：内存管理器
 	running        atomic.Bool
 	summarizing    sync.Map
-	fallback       *providers.FallbackChain
+	inference      *InferenceService
+	contextBudget  *ContextBudgetManager
 	channelManager *channels.Manager
 	activeSessions sync.Map // tracks sessions currently being processed
 
 	// Modular architecture components placeholder for future Beehive integration
 	useModular     bool // Feature flag to control which system is used
 	toolHandler    *ToolHandler // 新增：工具处理器
-	sessionManager *SessionManager // 新增：会话管理器
-	messageBuilder *MessageBuilder // 新增：消息构建器
 }
 
 // ProgressCallback is a function type for reporting progress during agent execution
@@ -58,6 +56,7 @@ type processOptions struct {
 	Channel         string // Target channel for tool execution
 	ChatID          string // Target chat ID for tool execution
 	UserMessage     string // User message content (may include prefix)
+	MemoryContext   string // Retrieved cross-session context for this turn
 	DefaultResponse string // Response when LLM returns empty
 	EnableSummary   bool   // Whether to trigger summarization
 	NoHistory       bool   // If true, don't load session history (for heartbeat)
@@ -123,6 +122,8 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	// Set up shared fallback chain
 	cooldown := providers.NewCooldownTracker()
 	fallbackChain := providers.NewFallbackChain(cooldown)
+	contextBudget := NewContextBudgetManager()
+	inferenceService := NewInferenceService(msgBus, fallbackChain, contextBudget)
 
 	// Create state manager using default agent's workspace for channel recording
 	defaultAgent := registry.GetDefaultAgent()
@@ -147,25 +148,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	useModular := false // Use feature flag to enable modular system
 
 	// 创建ToolHandler
-	var toolHandler *ToolHandler
-	if defaultAgent != nil {
-		toolHandler = NewToolHandler(cfg, defaultAgent.Tools, msgBus)
-	} else {
-		// 如果没有默认代理，则创建一个基础的toolHandler，或者从registry获取其他可用代理
-		// 临时使用nil，稍后再进行处理
-		toolHandler = nil
-	}
-
-	// 创建分层组件
-	var sessionManager *SessionManager
-	var messageBuilder *MessageBuilder
-	if defaultAgent != nil {
-		sessionManager = NewSessionManager(defaultAgent.Sessions)
-		messageBuilder = NewMessageBuilder(sessionManager)
-	} else {
-		sessionManager = nil
-		messageBuilder = nil
-	}
+	toolHandler := NewToolHandler(cfg, msgBus)
 
 	return &AgentLoop{
 		bus:            msgBus,
@@ -174,12 +157,11 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		state:          stateManager,
 		memoryManager:  memoryManager,  // 添加到实例
 		summarizing:    sync.Map{},
-		fallback:       fallbackChain,
+		inference:      inferenceService,
+		contextBudget:  contextBudget,
 		// Initialize modular architecture support but default to disabled
 		useModular:     useModular,
 		toolHandler:    toolHandler, // 添加ToolHandler
-		sessionManager: sessionManager, // 添加SessionManager
-		messageBuilder: messageBuilder, // 添加MessageBuilder
 	}
 }
 
@@ -651,13 +633,8 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 	var history []providers.Message
 	var summary string
 	if !opts.NoHistory {
-		if al.sessionManager != nil {
-			history = al.sessionManager.GetHistory(opts.SessionKey)
-			summary = al.sessionManager.GetSummary(opts.SessionKey)
-		} else {
-			history = agent.Sessions.GetHistory(opts.SessionKey)
-			summary = agent.Sessions.GetSummary(opts.SessionKey)
-		}
+		history = agent.SessionManager.GetHistory(opts.SessionKey)
+		summary = agent.SessionManager.GetSummary(opts.SessionKey)
 	}
 
 	// 新增：从记忆系统获取相关上下文
@@ -670,72 +647,26 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 		if err != nil {
 			logger.WarnCF("memory", "Failed to search memory context", map[string]any{"error": err})
 		} else if len(searchResults) > 0 {
-			// 将搜索结果格式化为上下文字符串
-			var contextBuilder strings.Builder
-			contextBuilder.WriteString("## Relevant Past Memories\n")
-
-			for i, result := range searchResults {
-				if i >= 3 { // 限制最多3个最相关项目
-					break
-				}
-
-				// 确保内容不过长
-				content := result.Content
-				if len(content) > 500 {
-					content = content[:500] + "..."
-				}
-
-				contextBuilder.WriteString(fmt.Sprintf("### Memory %d: %s\n", i+1, result.Key))
-				contextBuilder.WriteString(content)
-				contextBuilder.WriteString("\n\n")
-			}
-
-			memoryContext = contextBuilder.String()
+			memoryContext = formatMemoryContext(searchResults, 3)
 		}
 		cancel()
 	}
 
+	opts.MemoryContext = memoryContext
+
 	// 构建消息
-	var messages []providers.Message
-	if al.messageBuilder != nil {
-		// 使用新组件构建消息（如果可用）并传递实际的配置
-		// 需要转换配置类型
-		compactionConfig := CompactionConfig{
-			ReserveTokens:       agent.CompactionConfig.ReserveTokens,
-			KeepRecentTokens:    agent.CompactionConfig.KeepRecentTokens,
-			ReserveTokensFloor:  agent.CompactionConfig.ReserveTokensFloor,
-			MemoryFlushEnabled:  agent.CompactionConfig.MemoryFlush.Enabled,
-			SoftThresholdTokens: agent.CompactionConfig.MemoryFlush.SoftThresholdTokens,
-		}
-		messages = al.messageBuilder.BuildMessagesWithConfig(
-			history,
-			summary,
-			opts.UserMessage,
-			memoryContext,
-			"", // media参数
-			opts.Channel,
-			opts.ChatID,
-			compactionConfig, // 使用转换后的配置
-		)
-	} else {
-		// 后备实现
-		messages = agent.ContextBuilder.BuildMessages(
-			history,
-			summary,
-			opts.UserMessage,
-			memoryContext,  // 新增参数：记忆上下文
-			nil,            // media参数
-			opts.Channel,
-			opts.ChatID,
-		)
-	}
+	messages := al.contextBudget.BuildMessages(
+		agent,
+		history,
+		summary,
+		opts.UserMessage,
+		memoryContext,
+		opts.Channel,
+		opts.ChatID,
+	)
 
 	// 3. Save user message to session
-	if al.sessionManager != nil {
-		al.sessionManager.AddUserMessage(opts.SessionKey, opts.UserMessage)
-	} else {
-		agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
-	}
+	agent.SessionManager.AddUserMessage(opts.SessionKey, opts.UserMessage)
 
 	// 4. Run LLM iteration loop
 	progressCallback := al.progressCallbackFunc(opts.Channel, opts.ChatID)
@@ -757,67 +688,43 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 
 		// Build a new message list with the summary prompt
 		var summaryHistory []providers.Message
-		if al.sessionManager != nil {
-			summaryHistory = al.sessionManager.GetHistory(opts.SessionKey)
-		} else {
-			summaryHistory = agent.Sessions.GetHistory(opts.SessionKey)
-		}
+		summaryHistory = agent.SessionManager.GetHistory(opts.SessionKey)
 
-		var summaryMessages []providers.Message
-		if al.messageBuilder != nil {
-			// 需要转换配置类型
-			compactionConfig := CompactionConfig{
-				ReserveTokens:       agent.CompactionConfig.ReserveTokens,
-				KeepRecentTokens:    agent.CompactionConfig.KeepRecentTokens,
-				ReserveTokensFloor:  agent.CompactionConfig.ReserveTokensFloor,
-				MemoryFlushEnabled:  agent.CompactionConfig.MemoryFlush.Enabled,
-				SoftThresholdTokens: agent.CompactionConfig.MemoryFlush.SoftThresholdTokens,
-			}
-			summaryMessages = al.messageBuilder.BuildMessagesWithConfig(
-				summaryHistory,
-				agent.Sessions.GetSummary(opts.SessionKey),
-				summaryPrompt,
-				"", // memoryContext
-				"", // media
-				opts.Channel,
-				opts.ChatID,
-				compactionConfig, // 使用转换后的配置
-			)
-		} else {
-			summaryMessages = agent.ContextBuilder.BuildMessages(
-				summaryHistory,
-				agent.Sessions.GetSummary(opts.SessionKey),
-				summaryPrompt,
-				"", // memoryContext
-				nil, // media
-				opts.Channel,
-				opts.ChatID,
-			)
-		}
+		summaryMessages := al.contextBudget.BuildMessages(
+			agent,
+			summaryHistory,
+			agent.SessionManager.GetSummary(opts.SessionKey),
+			summaryPrompt,
+			"",
+			opts.Channel,
+			opts.ChatID,
+		)
 
 		// Call the LLM to generate a meaningful response
-		summaryResponse, err := agent.Provider.Chat(ctx, summaryMessages, agent.Tools.ToProviderDefs(), agent.Model, map[string]any{
-			"max_tokens":  agent.MaxTokens,
-			"temperature": agent.Temperature,
+		summaryResponse, err := al.inference.Invoke(ctx, agent, InferenceRequest{
+			Messages:         summaryMessages,
+			ProviderToolDefs: agent.Tools.ToProviderDefs(),
+			Options: processOptions{
+				SessionKey:    opts.SessionKey,
+				Channel:       opts.Channel,
+				ChatID:        opts.ChatID,
+				UserMessage:   summaryPrompt,
+				MemoryContext: "",
+			},
 		})
 
-		if err != nil || summaryResponse == nil || summaryResponse.Content == "" {
+		if err != nil || summaryResponse == nil || summaryResponse.Response == nil || summaryResponse.Response.Content == "" {
 			// If LLM fails to generate a response, provide a more helpful default
 			finalContent = fmt.Sprintf("I've completed processing your request about: '%s'. I couldn't generate a detailed response, but I may have performed some actions in the background. If you need specific information, please try rephrasing your question.",
 				utils.Truncate(opts.UserMessage, 60))
 		} else {
-			finalContent = summaryResponse.Content
+			finalContent = summaryResponse.Response.Content
 		}
 	}
 
 	// 6. Save final assistant message to session
-	if al.sessionManager != nil {
-		al.sessionManager.AddAssistantMessage(opts.SessionKey, finalContent)
-		al.sessionManager.Save(opts.SessionKey)
-	} else {
-		agent.Sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
-		agent.Sessions.Save(opts.SessionKey)
-	}
+	agent.SessionManager.AddAssistantMessage(opts.SessionKey, finalContent)
+	agent.SessionManager.Save(opts.SessionKey)
 
 	// 新增：将重要信息沉淀到记忆系统
 	if al.memoryManager != nil && finalContent != "" {
@@ -826,9 +733,10 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 			defer cancel() // 使用defer确保cancel被调用
 			_ = ctx // 显式使用ctx变量避免未使用警告
 			// 使用SedimentKnowledge方法沉淀知识
-			err := al.memoryManager.SedimentKnowledge(
+			err := al.memoryManager.SedimentKnowledgeWithType(
 				fmt.Sprintf("Session: %s, Query: %s, Response: %s", opts.SessionKey, opts.UserMessage, finalContent),
 				opts.SessionKey, // sourceKey
+				memory.MemoryTypeConversationSummary,
 			)
 			if err != nil {
 				logger.WarnCF("memory", "Failed to sediment knowledge", map[string]any{"error": err, "session_key": opts.SessionKey})
@@ -888,11 +796,17 @@ func (al *AgentLoop) runLLMIteration(
 			})
 
 		// Core LLM interaction loop - the essential logic
-		response, err := al.callLLMWithFallback(ctx, agent, messages, agent.Tools.ToProviderDefs(), opts)
+		inferenceResult, err := al.inference.Invoke(ctx, agent, InferenceRequest{
+			Messages:         messages,
+			ProviderToolDefs: agent.Tools.ToProviderDefs(),
+			Options:          opts,
+		})
 		if err != nil {
 			logger.ErrorCF("agent", "LLM call failed", map[string]any{"error": err, "iteration": iteration})
 			return "", iteration, fmt.Errorf("LLM call failed: %w", err)
 		}
+		response := inferenceResult.Response
+		messages = inferenceResult.MessagesUsed
 
 		logger.InfoCF("agent", fmt.Sprintf("LLM iteration %d completed", iteration),
 			map[string]any{
@@ -916,7 +830,7 @@ func (al *AgentLoop) runLLMIteration(
 						"content_len":   len(response.Content),
 						"finish_reason": response.FinishReason,
 					})
-				finalContent = al.handleOutputTruncation(ctx, agent, messages, response, opts)
+				finalContent = al.inference.ContinueAfterTruncation(ctx, agent, messages, response, opts)
 				break
 			}
 			logger.InfoCF("agent", "No tool calls, exiting iteration loop",
@@ -994,88 +908,6 @@ func (al *AgentLoop) runLLMIteration(
 	return finalContent, iteration, nil
 }
 
-// handleOutputTruncation handles the case where the LLM output was cut off due to
-// max_tokens limit. It injects a continuation prompt and re-calls the LLM, merging
-// the partial outputs into one complete response. At most maxContinuations rounds
-// are attempted; any failure returns whatever has been accumulated so far.
-func (al *AgentLoop) handleOutputTruncation(
-	ctx context.Context,
-	agent *AgentInstance,
-	messages []providers.Message,
-	response *providers.LLMResponse,
-	opts processOptions,
-) string {
-	const maxContinuations = 3
-	accumulated := response.Content
-
-	for i := 0; i < maxContinuations; i++ {
-		// Append the (partial) assistant turn and a user continuation prompt.
-		messages = append(messages,
-			providers.Message{Role: "assistant", Content: accumulated},
-			providers.Message{Role: "user", Content: "Please continue from where you left off."},
-		)
-
-		// Prune to avoid context overflow before the continuation call.
-		// Drop the oldest non-system messages until we are under the limit.
-		messages = al.pruneOldestForContinuation(messages, agent)
-
-		nextResp, err := al.callLLMWithFallback(ctx, agent, messages, agent.Tools.ToProviderDefs(), opts)
-		if err != nil {
-			logger.WarnCF("agent", "Continuation call failed, returning accumulated content",
-				map[string]any{"error": err, "continuation": i + 1, "session_key": opts.SessionKey})
-			break
-		}
-
-		accumulated += nextResp.Content
-		logger.InfoCF("agent", "Continuation succeeded",
-			map[string]any{
-				"continuation":  i + 1,
-				"added_len":     len(nextResp.Content),
-				"total_len":     len(accumulated),
-				"finish_reason": nextResp.FinishReason,
-				"session_key":   opts.SessionKey,
-			})
-
-		if nextResp.FinishReason != "max_tokens" && nextResp.FinishReason != "length" {
-			break // Natural stop - no more truncation
-		}
-	}
-
-	return accumulated
-}
-
-// pruneOldestForContinuation removes the oldest non-system messages from the message
-// list until the estimated token count is safely below the agent's context limit.
-// This ensures there is room in the context window for the continuation call.
-func (al *AgentLoop) pruneOldestForContinuation(messages []providers.Message, agent *AgentInstance) []providers.Message {
-	if len(messages) == 0 {
-		return messages
-	}
-
-	// Use 80% of max context as a safe target to leave room for the response.
-	targetTokens := al.estimateTokens(messages) * 4 / 5
-	if agent.CompactionConfig.ReserveTokens > 0 {
-		targetTokens = agent.CompactionConfig.ReserveTokens * 10 // rough conversion from tokens
-	}
-
-	for len(messages) > 2 && al.estimateTokens(messages) > targetTokens {
-		// Find the first non-system message to drop (keep messages[0] which is system).
-		dropped := false
-		for i := 1; i < len(messages)-2; i++ { // keep at least the last 2 messages (continuation pair)
-			if messages[i].Role != "system" {
-				messages = append(messages[:i], messages[i+1:]...)
-				dropped = true
-				break
-			}
-		}
-		if !dropped {
-			break // Nothing left to drop
-		}
-	}
-
-	return messages
-}
-
 // processAndIntegrateToolCalls handles tool execution and integrates results back to the conversation
 func (al *AgentLoop) processAndIntegrateToolCalls(
 	ctx context.Context,
@@ -1105,11 +937,7 @@ func (al *AgentLoop) processAndIntegrateToolCalls(
 	// Save assistant message with tool calls to session - critical for history consistency.
 	// Without this, reloaded history has orphaned tool results (no preceding assistant+tool_calls),
 	// causing sanitizeHistoryForProvider to drop them and the LLM to repeat tool calls.
-	if al.sessionManager != nil {
-		al.sessionManager.AddToolResult(opts.SessionKey, assistantMsg)
-	} else {
-		agent.Sessions.AddFullMessage(opts.SessionKey, assistantMsg)
-	}
+	agent.SessionManager.AddToolResult(opts.SessionKey, assistantMsg)
 
 	// Process tool calls and get results
 	toolResultMessages, err := al.processToolCalls(ctx, agent, response.ToolCalls, opts, progressCallback)
@@ -1159,6 +987,7 @@ func (al *AgentLoop) processToolCalls(
 	// Use ToolHandler to process the tool calls
 	toolResultMessages, err := al.toolHandler.ProcessToolCalls(
 		ctx,
+		agent.Tools,
 		toolCalls,
 		opts.Channel,
 		opts.ChatID,
@@ -1187,38 +1016,21 @@ func (al *AgentLoop) processToolCalls(
 		}
 
 		// Save to session - this is critical for ensuring LLM sees results in next iteration
-		if al.sessionManager != nil {
-			al.sessionManager.AddToolResult(opts.SessionKey, toolResultMsg)
-			logger.InfoCF("agent", "Saved tool result to session manager",
-				map[string]any{
-					"tool_call_id": toolResultMsg.ToolCallID,
-					"content_len":  len(toolResultMsg.Content),
-					"session_key":  opts.SessionKey,
-				})
-		} else {
-			agent.Sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
-			logger.InfoCF("agent", "Saved tool result to agent sessions",
-				map[string]any{
-					"tool_call_id": toolResultMsg.ToolCallID,
-					"content_len":  len(toolResultMsg.Content),
-					"session_key":  opts.SessionKey,
-				})
+			if agent.SessionManager != nil {
+				agent.SessionManager.AddToolResult(opts.SessionKey, toolResultMsg)
+				logger.InfoCF("agent", "Saved tool result to session manager",
+					map[string]any{
+						"tool_call_id": toolResultMsg.ToolCallID,
+						"content_len":  len(toolResultMsg.Content),
+						"session_key":  opts.SessionKey,
+					})
+			}
 		}
-	}
 
 	// Verify that the session has been updated correctly
-	if al.sessionManager != nil {
-		history := al.sessionManager.GetHistory(opts.SessionKey)
+	if agent.SessionManager != nil {
+		history := agent.SessionManager.GetHistory(opts.SessionKey)
 		logger.InfoCF("agent", "Session history verified after tool results",
-			map[string]any{
-				"session_key":   opts.SessionKey,
-				"history_count": len(history),
-				"last_msg_role": history[len(history)-1].Role,
-				"last_msg_content_preview": utils.Truncate(history[len(history)-1].Content, 100),
-			})
-	} else {
-		history := agent.Sessions.GetHistory(opts.SessionKey)
-		logger.InfoCF("agent", "Agent session history verified after tool results",
 			map[string]any{
 				"session_key":   opts.SessionKey,
 				"history_count": len(history),
@@ -1294,9 +1106,10 @@ func (al *AgentLoop) sedimentToolResult(contentForLLM string, tc providers.ToolC
 			// Create a summary of tool execution
 			toolResultSummary := fmt.Sprintf("Tool '%s' executed with arguments %v, result: %s", tc.Name, tc.Arguments, contentForLLM)
 			// Sediment tool execution results
-			err := al.memoryManager.SedimentKnowledge(
+			err := al.memoryManager.SedimentKnowledgeWithType(
 				toolResultSummary,
 				fmt.Sprintf("tool_result_%s", tc.Name),
+				memory.MemoryTypeToolObservation,
 			)
 			if err != nil {
 				logger.WarnCF("memory", "Failed to sediment tool result", map[string]any{"error": err, "tool": tc.Name})
@@ -1312,216 +1125,6 @@ func skipToolCall(tc providers.ToolCall) providers.Message {
 		Content:    "Skipped due to user interruption.",
 		ToolCallID: tc.ID,
 	}
-}
-
-// callLLMWithFallback handles calling LLM with potential fallback logic
-func (al *AgentLoop) callLLMWithFallback(
-	ctx context.Context,
-	agent *AgentInstance,
-	messages []providers.Message,
-	providerToolDefs []providers.ToolDefinition,
-	opts processOptions,
-) (*providers.LLMResponse, error) {
-	var response *providers.LLMResponse
-	var err error
-
-	logger.InfoCF("agent", "Calling LLM with tools",
-		map[string]any{
-			"tool_def_count": len(providerToolDefs),
-			"message_count":  len(messages),
-			"session_key":    opts.SessionKey,
-			"model":          agent.Model,
-		})
-
-	callLLM := func() (*providers.LLMResponse, error) {
-		if len(agent.Candidates) > 1 && al.fallback != nil {
-			fbResult, fbErr := al.fallback.Execute(ctx, agent.Candidates,
-				func(ctx context.Context, provider, model string) (*providers.LLMResponse, error) {
-					return agent.Provider.Chat(ctx, messages, providerToolDefs, model, map[string]any{
-						"max_tokens":  agent.MaxTokens,
-						"temperature": agent.Temperature,
-					})
-				},
-			)
-			if fbErr != nil {
-				return nil, fbErr
-			}
-			if fbResult.Provider != "" && len(fbResult.Attempts) > 0 {
-				logger.InfoCF("agent", fmt.Sprintf("Fallback: succeeded with %s/%s after %d attempts",
-					fbResult.Provider, fbResult.Model, len(fbResult.Attempts)+1),
-					map[string]any{"agent_id": agent.ID})
-			}
-			return fbResult.Response, nil
-		}
-		return agent.Provider.Chat(ctx, messages, providerToolDefs, agent.Model, map[string]any{
-			"max_tokens":  agent.MaxTokens,
-			"temperature": agent.Temperature,
-		})
-	}
-
-	// Retry loop for context/token errors
-	maxRetries := 3 // Increase retries for context overflow
-	for retry := 0; retry <= maxRetries; retry++ {
-		response, err = callLLM()
-		if err == nil {
-			logger.InfoCF("agent", "LLM call successful",
-				map[string]any{
-					"has_content":     response.Content != "",
-					"tool_call_count": len(response.ToolCalls),
-					"session_key":     opts.SessionKey,
-				})
-			break
-		}
-
-		if isContextOverflowError(err.Error()) || strings.Contains(strings.ToLower(err.Error()), "input length should be") {
-			logger.WarnCF("agent", "Context window error detected, attempting compression", map[string]any{
-				"error": err.Error(),
-				"retry": retry,
-			})
-
-			if retry == 0 && !constants.IsInternalChannel(opts.Channel) {
-				al.bus.PublishOutbound(bus.OutboundMessage{
-					Channel: opts.Channel,
-					ChatID:  opts.ChatID,
-					Content: "Context window exceeded. Compressing history and retrying...",
-				})
-			}
-
-			// Use the improved compression based on modular architecture
-			if al.sessionManager != nil {
-				al.sessionManager.ForceCompression(opts.SessionKey)
-				newHistory := al.sessionManager.GetHistory(opts.SessionKey)
-				newSummary := al.sessionManager.GetSummary(opts.SessionKey)
-
-				// Also use MessageBuilder if available
-				if al.messageBuilder != nil {
-					// Rebuild messages with the new, compressed history
-					var rebuildMemoryContext string
-					if al.memoryManager != nil {
-						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-						defer cancel() // 确保取消上下文
-						_ = ctx // 显式使用ctx变量避免未使用警告
-
-						// 使用Search方法获取相关记忆上下文
-						searchResults, err := al.memoryManager.Search(opts.UserMessage, 5) // 获取最多5个相关项
-						if err != nil {
-							logger.WarnCF("memory", "Failed to search memory context during rebuild", map[string]any{"error": err})
-						} else if len(searchResults) > 0 {
-							// 将搜索结果格式化为上下文字符串
-							var contextBuilder strings.Builder
-							contextBuilder.WriteString("## Relevant Past Memories\n")
-
-							for i, result := range searchResults {
-								if i >= 3 { // 限制最多3个最相关项目
-									break
-								}
-								contextBuilder.WriteString(fmt.Sprintf("- %s\n", result.Content))
-								contextBuilder.WriteString("\n\n")
-							}
-
-							rebuildMemoryContext = contextBuilder.String()
-						}
-					}
-
-					// Build messages using MessageBuilder with proper config
-					// 需要转换配置类型
-					compactionConfig := CompactionConfig{
-						ReserveTokens:       agent.CompactionConfig.ReserveTokens,
-						KeepRecentTokens:    agent.CompactionConfig.KeepRecentTokens,
-						ReserveTokensFloor:  agent.CompactionConfig.ReserveTokensFloor,
-						MemoryFlushEnabled:  agent.CompactionConfig.MemoryFlush.Enabled,
-						SoftThresholdTokens: agent.CompactionConfig.MemoryFlush.SoftThresholdTokens,
-					}
-					messages = al.messageBuilder.BuildMessagesWithConfig(
-						newHistory, newSummary, opts.UserMessage,
-						rebuildMemoryContext, "", opts.Channel, opts.ChatID,
-						compactionConfig, // 使用转换后的配置
-					)
-				} else {
-					// Fallback to the original method if MessageBuilder not available
-					al.forceCompression(agent, opts.SessionKey)
-					newHistory := agent.Sessions.GetHistory(opts.SessionKey)
-					newSummary := agent.Sessions.GetSummary(opts.SessionKey)
-
-					// Also retrieve relevant memory context for the rebuilt messages
-					var rebuildMemoryContext string
-					if al.memoryManager != nil {
-						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-						defer cancel() // 确保取消上下文
-						_ = ctx // 显式使用ctx变量避免未使用警告
-
-						// 使用Search方法获取相关记忆上下文
-						searchResults, err := al.memoryManager.Search(opts.UserMessage, 5) // 获取最多5个相关项
-						if err != nil {
-							logger.WarnCF("memory", "Failed to search memory context during rebuild", map[string]any{"error": err})
-						} else if len(searchResults) > 0 {
-							// 将搜索结果格式化为上下文字符串
-							var contextBuilder strings.Builder
-							contextBuilder.WriteString("## Relevant Past Memories\n")
-
-							for i, result := range searchResults {
-								if i >= 3 { // 限制最多3个最相关项目
-									break
-								}
-								contextBuilder.WriteString(fmt.Sprintf("- %s\n", result.Content))
-								contextBuilder.WriteString("\n\n")
-							}
-
-							rebuildMemoryContext = contextBuilder.String()
-						}
-					}
-
-					messages = agent.ContextBuilder.BuildMessages(
-						newHistory, newSummary, opts.UserMessage,
-						rebuildMemoryContext, nil, opts.Channel, opts.ChatID,
-					)
-				}
-			} else {
-				// Original fallback method
-				al.forceCompression(agent, opts.SessionKey)
-				newHistory := agent.Sessions.GetHistory(opts.SessionKey)
-				newSummary := agent.Sessions.GetSummary(opts.SessionKey)
-
-				// IMPORTANT: Include the original user message when rebuilding messages after compression
-				// Also retrieve relevant memory context for the rebuilt messages
-				var rebuildMemoryContext string
-				if al.memoryManager != nil {
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					defer cancel() // 确保取消上下文
-					_ = ctx // 显式使用ctx变量避免未使用警告
-
-					// 使用Search方法获取相关记忆上下文
-					searchResults, err := al.memoryManager.Search(opts.UserMessage, 5) // 获取最多5个相关项
-					if err != nil {
-						logger.WarnCF("memory", "Failed to search memory context during rebuild", map[string]any{"error": err})
-					} else if len(searchResults) > 0 {
-						// 将搜索结果格式化为上下文字符串
-						var contextBuilder strings.Builder
-						contextBuilder.WriteString("## Relevant Past Memories\n")
-
-						for i, result := range searchResults {
-							if i >= 3 { // 限制最多3个最相关项目
-								break
-							}
-							contextBuilder.WriteString(fmt.Sprintf("- %s\n", result.Content))
-							contextBuilder.WriteString("\n\n")
-						}
-
-						rebuildMemoryContext = contextBuilder.String()
-					}
-				}
-
-				messages = agent.ContextBuilder.BuildMessages(
-					newHistory, newSummary, opts.UserMessage,
-					rebuildMemoryContext, nil, opts.Channel, opts.ChatID,
-				)
-			}
-			continue
-		}
-		break
-	}
-
-	return response, err
 }
 
 // createAssistantMessage creates an assistant message from the LLM response
@@ -1612,8 +1215,8 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	history := agent.Sessions.GetHistory(sessionKey)
-	summary := agent.Sessions.GetSummary(sessionKey)
+	history := agent.SessionManager.GetHistory(sessionKey)
+	summary := agent.SessionManager.GetSummary(sessionKey)
 
 	// 获取相关的记忆上下文用于内存刷新
 	var flushMemoryContext string
@@ -1628,19 +1231,7 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 		if err != nil {
 			logger.WarnCF("memory", "Failed to search memory context during flush", map[string]any{"error": err})
 		} else if len(searchResults) > 0 {
-			// 将搜索结果格式化为上下文字符串
-			var contextBuilder strings.Builder
-			contextBuilder.WriteString("## Relevant Past Memories\n")
-
-			for i, result := range searchResults {
-				if i >= 2 { // 限制最多2个最相关项目以避免过多上下文
-					break
-				}
-				contextBuilder.WriteString(fmt.Sprintf("- %s\n", result.Content))
-				contextBuilder.WriteString("\n\n")
-			}
-
-			flushMemoryContext = contextBuilder.String()
+			flushMemoryContext = formatMemoryContext(searchResults, 2)
 		}
 	}
 
@@ -1649,12 +1240,12 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 		"This is an automatic reminder to ensure no important data is lost during upcoming history compression. " +
 		"You may reply with 'NO_REPLY' if no memory updates are needed."
 
-	messages := agent.ContextBuilder.BuildMessages(
+	messages := al.contextBudget.BuildMessages(
+		agent,
 		history,
 		summary,
 		memoryFlushPrompt,
-		flushMemoryContext,  // 现在使用获取的相关记忆上下文
-		nil,     // media参数
+		flushMemoryContext,
 		channel,
 		chatID,
 	)
@@ -1663,9 +1254,16 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 	providerToolDefs := agent.Tools.ToProviderDefs()
 
 	// Call LLM with memory flush prompt
-	response, err := agent.Provider.Chat(ctx, messages, providerToolDefs, agent.Model, map[string]any{
-		"max_tokens":  agent.MaxTokens,
-		"temperature": agent.Temperature,
+	inferenceResult, err := al.inference.Invoke(ctx, agent, InferenceRequest{
+		Messages:         messages,
+		ProviderToolDefs: providerToolDefs,
+		Options: processOptions{
+			SessionKey:    sessionKey,
+			Channel:       channel,
+			ChatID:        chatID,
+			UserMessage:   memoryFlushPrompt,
+			MemoryContext: flushMemoryContext,
+		},
 	})
 
 	if err != nil {
@@ -1675,6 +1273,7 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 		})
 		return
 	}
+	response := inferenceResult.Response
 
 	// Execute any tool calls that might save important information
 	if len(response.ToolCalls) > 0 {
@@ -1728,7 +1327,7 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 			}
 
 			// Add to session for potential future reference
-			agent.Sessions.AddFullMessage(sessionKey, toolResultMsg)
+			agent.SessionManager.AddFullMessage(sessionKey, toolResultMsg)
 
 			// 新增：如果工具结果重要，则将其沉淀到记忆系统（内存刷新场景）
 			if al.memoryManager != nil && contentForLLM != "" && shouldRememberToolResult(tc.Name) {
@@ -1739,9 +1338,10 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 					// 创建一个描述工具调用和结果的摘要
 					toolResultSummary := fmt.Sprintf("Memory flush tool '%s' executed with arguments %v, result: %s", tc.Name, tc.Arguments, contentForLLM)
 					// 使用SedimentKnowledge方法沉淀工具执行结果
-					err := al.memoryManager.SedimentKnowledge(
+					err := al.memoryManager.SedimentKnowledgeWithType(
 						toolResultSummary,
 						fmt.Sprintf("memory_flush_tool_result_%s", tc.Name), // sourceKey
+						memory.MemoryTypeToolObservation,
 					)
 					if err != nil {
 						logger.WarnCF("memory", "Failed to sediment memory flush tool result", map[string]any{"error": err, "tool": tc.Name})
@@ -1754,19 +1354,9 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 
 // maybeSummarize triggers summarization if the session history exceeds thresholds.
 func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, chatID string) {
-	newHistory := agent.Sessions.GetHistory(sessionKey)
-	tokenEstimate := al.estimateTokens(newHistory)
-
-	// Check if we should trigger a pre-compaction memory flush
-	if agent.CompactionConfig.MemoryFlush.Enabled {
-		reserveTokensFloor := agent.CompactionConfig.ReserveTokensFloor
-		softThresholdTokens := agent.CompactionConfig.MemoryFlush.SoftThresholdTokens
-		memoryFlushThreshold := agent.ContextWindow - reserveTokensFloor - softThresholdTokens
-
-		if tokenEstimate > memoryFlushThreshold {
-			// Trigger a silent memory flush to save important data before auto-compaction
-			go al.triggerMemoryFlush(agent, sessionKey, channel, chatID)
-		}
+	newHistory := agent.SessionManager.GetHistory(sessionKey)
+	if al.contextBudget.ShouldTriggerMemoryFlush(agent, newHistory) {
+		go al.triggerMemoryFlush(agent, sessionKey, channel, chatID)
 	}
 
 	// OLD AUTO-COMPACTION LOGIC COMMENTED OUT:
@@ -1798,7 +1388,7 @@ func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, c
 // It drops the oldest 50% of messages (keeping system prompt and last user message).
 // This version preserves tool call and tool result message pairs to maintain proper message sequence.
 func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
-	history := agent.Sessions.GetHistory(sessionKey)
+	history := agent.SessionManager.GetHistory(sessionKey)
 	if len(history) <= 4 {
 		return
 	}
@@ -1854,8 +1444,8 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 	}
 
 	// Update session with compressed history
-	agent.Sessions.SetHistory(sessionKey, newHistory)
-	agent.Sessions.Save(sessionKey)
+	agent.SessionManager.SetHistory(sessionKey, newHistory)
+	agent.SessionManager.Save(sessionKey)
 }
 
 // collapseGroup condenses a group of related messages into a single summary line.
@@ -1896,141 +1486,6 @@ func min(a, b int) int {
 	return b
 }
 
-// estimateTokens estimates the number of tokens in a message list.
-// Uses a safe heuristic of 2.5 characters per token to account for CJK and other
-// overheads better than the previous 3 chars/token.
-func (al *AgentLoop) estimateTokens(messages []providers.Message) int {
-	totalChars := 0
-	for _, m := range messages {
-		totalChars += utf8.RuneCountInString(m.Content)
-	}
-	// 2.5 chars per token = totalChars * 2 / 5
-	return totalChars * 2 / 5
-}
-
-// pruneSessionMemory performs in-memory trimming of old tool results without
-// rewriting the persistent history, similar to openclaw's session pruning mechanism
-func (al *AgentLoop) pruneSessionMemory(agent *AgentInstance, sessionKey string, messages []providers.Message) []providers.Message {
-	// Only perform pruning if we have compaction config available
-	compactionConfig := agent.CompactionConfig
-
-	// If keepRecentTokens is 0, skip pruning
-	if compactionConfig.KeepRecentTokens <= 0 {
-		return messages
-	}
-
-	// Enhanced logic: preserve tool call-result pairs together
-	var prunedMessages []providers.Message
-	var accumulatedTokens int
-
-	// Process messages in reverse order (most recent first)
-	// This allows us to keep recent tool call-result pairs together
-	i := len(messages) - 1
-	for i >= 0 {
-		msg := messages[i]
-		msgTokens := al.estimateTokens([]providers.Message{msg})
-
-		// Always keep user and assistant messages
-		if msg.Role == "user" || msg.Role == "assistant" {
-			// Check if this is an assistant message with tool calls
-			if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-				// Look ahead to find associated tool results
-				// Add this assistant message
-				prunedMessages = append(prunedMessages, msg)
-				accumulatedTokens += msgTokens
-
-				// Find immediate following tool results that belong to this assistant message
-				j := i - 1
-				for j >= 0 {
-					nextMsg := messages[j]
-					if nextMsg.Role == "tool" && nextMsg.ToolCallID != "" {
-						// Check if this tool result corresponds to one of the tool calls
-						toolCallFound := false
-						for _, tc := range msg.ToolCalls {
-							if tc.ID == nextMsg.ToolCallID {
-								toolCallFound = true
-								break
-							}
-						}
-						if toolCallFound {
-							toolMsgTokens := al.estimateTokens([]providers.Message{nextMsg})
-							// Check if we can fit this tool result within our token budget
-							if accumulatedTokens + toolMsgTokens < compactionConfig.KeepRecentTokens {
-								prunedMessages = append(prunedMessages, nextMsg)
-								accumulatedTokens += toolMsgTokens
-								j--
-							} else {
-								// Can't fit this tool result, so break and stop adding
-								break
-							}
-						} else {
-							// This tool result doesn't belong to current assistant's tool calls
-							break
-						}
-					} else {
-						// Different role, stop looking for tool results
-						break
-					}
-				}
-
-				// Update i to skip processed messages
-				i = j
-			} else {
-				// Regular user/assistant message, check if fits in token budget
-				if accumulatedTokens + msgTokens < compactionConfig.KeepRecentTokens {
-					prunedMessages = append(prunedMessages, msg)
-					accumulatedTokens += msgTokens
-					i--
-				} else {
-					// Token budget exceeded, stop processing
-					break
-				}
-			}
-		} else if msg.Role == "tool" {
-			// For tool messages, check if we should keep them based on the keepRecentTokens config
-			if accumulatedTokens + msgTokens < compactionConfig.KeepRecentTokens {
-				// Look for the corresponding assistant message that initiated this tool call
-				prunedMessages = append(prunedMessages, msg)
-				accumulatedTokens += msgTokens
-				i--
-			} else {
-				// Token budget exceeded, stop processing
-				break
-			}
-		} else {
-			// Other message types (system, etc.) - include if space permits
-			if accumulatedTokens + msgTokens < compactionConfig.KeepRecentTokens {
-				prunedMessages = append(prunedMessages, msg)
-				accumulatedTokens += msgTokens
-				i--
-			} else {
-				// Token budget exceeded, stop processing
-				break
-			}
-		}
-	}
-
-	// Reverse the slice back to original chronological order
-	for i, j := 0, len(prunedMessages)-1; i < j; i, j = i+1, j-1 {
-		prunedMessages[i], prunedMessages[j] = prunedMessages[j], prunedMessages[i]
-	}
-
-	// Log if we pruned any messages
-	originalCount := len(messages)
-	prunedCount := len(prunedMessages)
-	if originalCount > prunedCount {
-		logger.InfoCF("agent", "Session pruning completed",
-			map[string]any{
-				"session_key": sessionKey,
-				"original_messages": originalCount,
-				"pruned_messages": prunedCount,
-				"removed_messages": originalCount - prunedCount,
-			})
-	}
-
-	return prunedMessages
-}
-
 // shouldRememberToolResult determines if a tool result should be remembered in memory
 func shouldRememberToolResult(toolName string) bool {
 	// Define tools whose results should be remembered
@@ -2058,6 +1513,38 @@ func hasRecentToolActivity(messages []providers.Message, recentCount int) bool {
 		count++
 	}
 	return false
+}
+
+func formatMemoryContext(results []memory.SearchResult, limit int) string {
+	if len(results) == 0 || limit <= 0 {
+		return ""
+	}
+
+	var contextBuilder strings.Builder
+	contextBuilder.WriteString("## Relevant Past Memories\n")
+
+	for i, result := range results {
+		if i >= limit {
+			break
+		}
+
+		content := result.Content
+		if len(content) > 500 {
+			content = content[:500] + "..."
+		}
+
+		contextBuilder.WriteString(fmt.Sprintf(
+			"### Memory %d: %s\nType: %s | Confidence: %.2f | Source: %s\n%s\n\n",
+			i+1,
+			result.Key,
+			result.Type,
+			result.Confidence,
+			result.SourceKey,
+			content,
+		))
+	}
+
+	return contextBuilder.String()
 }
 
 // isContextOverflowError detects various forms of context overflow errors from different LLM providers

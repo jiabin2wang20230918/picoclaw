@@ -59,22 +59,32 @@ func NewMemoryLikeATree(workspace string) (*MemoryLikeATree, error) {
 
 // Save saves content to memory with indexing and confidence tracking
 func (mlat *MemoryLikeATree) Save(key, content string) error {
+	return mlat.SaveRecord(MemoryRecord{
+		Key:       key,
+		Content:   content,
+		Type:      MemoryTypeArtifact,
+		SourceKey: key,
+	})
+}
+
+// SaveRecord saves structured memory content with indexing and confidence tracking.
+func (mlat *MemoryLikeATree) SaveRecord(record MemoryRecord) error {
 	if !mlat.initialized {
 		return fmt.Errorf("memory system not initialized")
 	}
 
 	// Save to core
-	if err := mlat.core.Save(key, content); err != nil {
+	if err := mlat.core.SaveRecord(record); err != nil {
 		return err
 	}
 
 	// Index the content
-	if err := mlat.indexer.IndexContent(key, content); err != nil {
+	if err := mlat.indexer.IndexContent(record.Key, record.Content); err != nil {
 		return err
 	}
 
 	// Potentially increase confidence on save
-	if err := mlat.confidence.UpdateConfidence(key, 0.9, "manual_save"); err != nil {
+	if err := mlat.confidence.UpdateConfidence(record.Key, 0.9, "manual_save"); err != nil {
 		return err
 	}
 
@@ -129,11 +139,16 @@ func (mlat *MemoryLikeATree) SearchRelated(key string, limit int) ([]SearchResul
 
 // SedimentKnowledge processes content to identify and preserve important knowledge
 func (mlat *MemoryLikeATree) SedimentKnowledge(content, sourceKey string) error {
+	return mlat.SedimentKnowledgeWithType(content, sourceKey, MemoryTypeFact)
+}
+
+// SedimentKnowledgeWithType preserves extracted knowledge with explicit metadata.
+func (mlat *MemoryLikeATree) SedimentKnowledgeWithType(content, sourceKey string, memoryType MemoryType) error {
 	if !mlat.initialized {
 		return fmt.Errorf("memory system not initialized")
 	}
 
-	return mlat.sedimenter.SedimentKnowledge(content, sourceKey)
+	return mlat.sedimenter.SedimentKnowledgeWithType(content, sourceKey, memoryType)
 }
 
 // GetConfidence returns the confidence score for a memory item

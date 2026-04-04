@@ -222,18 +222,20 @@ func (ecb *EnhancedContextBuilder) buildToolsSection() string {
 }
 
 func (ecb *EnhancedContextBuilder) LoadBootstrapFiles() string {
-	bootstrapFiles := []string{
-		"AGENTS.md",
-		"SOUL.md",
-		"USER.md",
-		"IDENTITY.md",
-	}
-
 	var sb strings.Builder
-	for _, filename := range bootstrapFiles {
-		filePath := filepath.Join(ecb.workspace, filename)
+	for _, spec := range resolveBootstrapFiles(ecb.workspace) {
+		enabled := spec.Enabled == nil || *spec.Enabled
+		if !enabled || strings.TrimSpace(spec.Path) == "" {
+			continue
+		}
+
+		filePath := filepath.Join(ecb.workspace, spec.Path)
 		if data, err := os.ReadFile(filePath); err == nil {
-			fmt.Fprintf(&sb, "## %s\n\n%s\n\n", filename, data)
+			fmt.Fprintf(&sb, "## %s\n\n%s\n\n", spec.Path, data)
+		} else if spec.Required {
+			logger.WarnCF("agent", "Required bootstrap file missing", map[string]any{
+				"path": filePath,
+			})
 		}
 	}
 
@@ -249,8 +251,6 @@ func (ecb *EnhancedContextBuilder) BuildMessages(
 	media []string,
 	channel, chatID string,
 ) []providers.Message {
-	messages := []providers.Message{}
-
 	// Detect which skills are relevant based on conversation history
 	activeSkills := ecb.DetectActiveSkills(history)
 
@@ -277,36 +277,7 @@ func (ecb *EnhancedContextBuilder) BuildMessages(
 			"preview": preview,
 		})
 
-	// Add conversation summary if available
-	if summary != "" {
-		systemPrompt += "\n\n## Summary of Previous Conversation\n\n" + summary
-	}
-
-	history = sanitizeHistoryForProvider(history)
-
-	messages = append(messages, providers.Message{
-		Role:    "system",
-		Content: systemPrompt,
-	})
-
-	// Add memory context if provided
-	if memoryContext != "" {
-		messages = append(messages, providers.Message{
-			Role:    "user",
-			Content: "## Relevant Memories\n\n" + memoryContext,
-		})
-	}
-
-	messages = append(messages, history...)
-
-	if strings.TrimSpace(currentMessage) != "" {
-		messages = append(messages, providers.Message{
-			Role:    "user",
-			Content: currentMessage,
-		})
-	}
-
-	return messages
+	return assembleProviderMessages(systemPrompt, history, summary, currentMessage, memoryContext)
 }
 
 // ClearLoadedSkills clears the cache of currently loaded skills

@@ -27,8 +27,13 @@ func NewSedimenter(db *sql.DB, confidenceMgr *ConfidenceTracker, indexer *Indexe
 
 // SedimentKnowledge processes content to identify and preserve important knowledge
 func (sed *Sedimenter) SedimentKnowledge(content string, sourceKey string) error {
+	return sed.SedimentKnowledgeWithType(content, sourceKey, MemoryTypeFact)
+}
+
+// SedimentKnowledgeWithType preserves extracted knowledge with an explicit top-level memory type.
+func (sed *Sedimenter) SedimentKnowledgeWithType(content string, sourceKey string, memoryType MemoryType) error {
 	// Extract different types of knowledge from content
-	knowledgePieces := sed.extractKnowledgePieces(content, sourceKey)
+	knowledgePieces := sed.extractKnowledgePieces(content, sourceKey, memoryType)
 
 	for _, piece := range knowledgePieces {
 		// Create a key for the knowledge piece
@@ -36,7 +41,14 @@ func (sed *Sedimenter) SedimentKnowledge(content string, sourceKey string) error
 
 		// Save the knowledge piece
 		core := &MemoryCore{db: sed.db}
-		if err := core.Save(key, piece.Content); err != nil {
+		if err := core.SaveRecord(MemoryRecord{
+			Key:       key,
+			Content:   piece.Content,
+			Type:      piece.Type,
+			SourceKey: sourceKey,
+			Tags:      piece.Tags,
+			Reason:    piece.Reason,
+		}); err != nil {
 			continue // Continue even if one piece fails
 		}
 
@@ -56,26 +68,40 @@ func (sed *Sedimenter) SedimentKnowledge(content string, sourceKey string) error
 
 // KnowledgePiece represents a piece of extracted knowledge
 type KnowledgePiece struct {
-	Type       string  // fact, concept, relationship, etc.
+	Type       MemoryType
 	Content    string  // The actual knowledge content
 	Confidence float64 // Initial confidence in this knowledge
 	Source     string  // Where the knowledge came from
 	Tags       []string // Associated tags
+	Reason     string
 }
 
 // extractKnowledgePieces extracts different types of knowledge from content
-func (sed *Sedimenter) extractKnowledgePieces(content, source string) []KnowledgePiece {
+func (sed *Sedimenter) extractKnowledgePieces(content, source string, memoryType MemoryType) []KnowledgePiece {
 	var pieces []KnowledgePiece
 
 	// Extract facts
 	facts := sed.extractFacts(content)
 	for _, fact := range facts {
 		pieces = append(pieces, KnowledgePiece{
-			Type:       "fact",
+			Type:       MemoryTypeFact,
 			Content:    fact,
 			Confidence: 0.8,
 			Source:     source,
 			Tags:       []string{"fact", "information"},
+			Reason:     "fact_extraction",
+		})
+	}
+
+	preferences := sed.extractPreferences(content)
+	for _, pref := range preferences {
+		pieces = append(pieces, KnowledgePiece{
+			Type:       MemoryTypePreference,
+			Content:    pref,
+			Confidence: 0.82,
+			Source:     source,
+			Tags:       []string{"preference"},
+			Reason:     "preference_extraction",
 		})
 	}
 
@@ -83,11 +109,12 @@ func (sed *Sedimenter) extractKnowledgePieces(content, source string) []Knowledg
 	concepts := sed.extractConcepts(content)
 	for _, concept := range concepts {
 		pieces = append(pieces, KnowledgePiece{
-			Type:       "concept",
+			Type:       normalizeMemoryType(memoryType),
 			Content:    concept,
 			Confidence: 0.7,
 			Source:     source,
-			Tags:       []string{"concept", "idea"},
+			Tags:       []string{"concept", "idea", string(normalizeMemoryType(memoryType))},
+			Reason:     "concept_extraction",
 		})
 	}
 
@@ -95,11 +122,12 @@ func (sed *Sedimenter) extractKnowledgePieces(content, source string) []Knowledg
 	relationships := sed.extractRelationships(content)
 	for _, rel := range relationships {
 		pieces = append(pieces, KnowledgePiece{
-			Type:       "relationship",
+			Type:       MemoryTypeFact,
 			Content:    rel,
 			Confidence: 0.75,
 			Source:     source,
 			Tags:       []string{"relationship", "connection"},
+			Reason:     "relationship_extraction",
 		})
 	}
 
@@ -107,15 +135,40 @@ func (sed *Sedimenter) extractKnowledgePieces(content, source string) []Knowledg
 	procedures := sed.extractProcedures(content)
 	for _, proc := range procedures {
 		pieces = append(pieces, KnowledgePiece{
-			Type:       "procedure",
+			Type:       normalizeMemoryType(memoryType),
 			Content:    proc,
 			Confidence: 0.75,
 			Source:     source,
-			Tags:       []string{"procedure", "howto"},
+			Tags:       []string{"procedure", "howto", string(normalizeMemoryType(memoryType))},
+			Reason:     "procedure_extraction",
+		})
+	}
+
+	if len(pieces) == 0 && strings.TrimSpace(content) != "" {
+		pieces = append(pieces, KnowledgePiece{
+			Type:       normalizeMemoryType(memoryType),
+			Content:    strings.TrimSpace(content),
+			Confidence: 0.7,
+			Source:     source,
+			Tags:       []string{string(normalizeMemoryType(memoryType))},
+			Reason:     "raw_capture",
 		})
 	}
 
 	return pieces
+}
+
+func (sed *Sedimenter) extractPreferences(content string) []string {
+	var preferences []string
+	re := regexp.MustCompile(`(?i)\b(i|user)\s+(prefer|prefers|like|likes|love|loves|dislike|dislikes|hate|hates|want|wants)\b[^.!?\n]*`)
+	matches := re.FindAllString(content, -1)
+	for _, match := range matches {
+		match = strings.TrimSpace(match)
+		if len(match) >= 12 {
+			preferences = append(preferences, match)
+		}
+	}
+	return preferences
 }
 
 // extractFacts extracts factual information from content

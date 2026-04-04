@@ -79,6 +79,13 @@
 
 <img src="assets/compare.jpg" alt="PicoClaw" width="512">
 
+## 🏗️ Architecture
+
+For the current runtime architecture and execution path, see:
+
+- [Runtime Architecture](docs/modular-architecture-enhancements.md)
+- [Architecture Diagram](docs/architecture-diagram.txt)
+
 ## 🦾 Demonstration
 
 ### 🛠️ Standard Assistant Workflows
@@ -588,21 +595,21 @@ PicoClaw stores data in your configured workspace (default: `~/.picoclaw/workspa
 ```
 ~/.picoclaw/workspace/
 ├── sessions/          # Conversation sessions and history
-├── memory/           # Long-term memory (MEMORY.md)
+├── memory/           # Long-term memory and daily notes
 ├── state/            # Persistent state (last channel, etc.)
 ├── cron/             # Scheduled jobs database
 ├── skills/           # Custom skills
-├── AGENTS.md         # Agent behavior guide
+├── context.json      # Optional bootstrap context manifest
+├── AGENT.md          # Agent behavior guide
 ├── HEARTBEAT.md      # Periodic task prompts (checked every 30 min)
 ├── IDENTITY.md       # Agent identity
 ├── SOUL.md           # Agent soul
-├── TOOLS.md          # Tool descriptions
 └── USER.md           # User preferences
 ```
 
 ### 🔒 Security Sandbox
 
-PicoClaw runs in a sandboxed environment by default. The agent can only access files and execute commands within the configured workspace.
+PicoClaw supports restricting file and command access to the configured workspace. Enable `restrict_to_workspace` if you want the agent sandboxed to that directory.
 
 #### Default Configuration
 
@@ -611,7 +618,7 @@ PicoClaw runs in a sandboxed environment by default. The agent can only access f
   "agents": {
     "defaults": {
       "workspace": "~/.picoclaw/workspace",
-      "restrict_to_workspace": true
+      "restrict_to_workspace": false
     }
   }
 }
@@ -620,7 +627,7 @@ PicoClaw runs in a sandboxed environment by default. The agent can only access f
 | Option                  | Default                 | Description                               |
 | ----------------------- | ----------------------- | ----------------------------------------- |
 | `workspace`             | `~/.picoclaw/workspace` | Working directory for the agent           |
-| `restrict_to_workspace` | `true`                  | Restrict file/command access to workspace |
+| `restrict_to_workspace` | `false`                 | Restrict file/command access to workspace |
 
 #### Protected Tools
 

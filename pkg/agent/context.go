@@ -150,34 +150,76 @@ This keeps memory content separate from system context for better information de
 }
 
 func (cb *ContextBuilder) LoadBootstrapFiles() string {
-	bootstrapFiles := []string{
-		"AGENTS.md",
-		"SOUL.md",
-		"USER.md",
-		"IDENTITY.md",
-	}
-
 	var sb strings.Builder
-	for _, filename := range bootstrapFiles {
-		filePath := filepath.Join(cb.workspace, filename)
+	for _, spec := range resolveBootstrapFiles(cb.workspace) {
+		enabled := spec.Enabled == nil || *spec.Enabled
+		if !enabled || strings.TrimSpace(spec.Path) == "" {
+			continue
+		}
+
+		filePath := filepath.Join(cb.workspace, spec.Path)
 		if data, err := os.ReadFile(filePath); err == nil {
-			fmt.Fprintf(&sb, "## %s\n\n%s\n\n", filename, data)
+			fmt.Fprintf(&sb, "## %s\n\n%s\n\n", spec.Path, data)
+		} else if spec.Required {
+			logger.WarnCF("agent", "Required bootstrap file missing", map[string]any{
+				"path": filePath,
+			})
 		}
 	}
 
 	return sb.String()
 }
 
-func (cb *ContextBuilder) BuildMessages(
+func assembleProviderMessages(
+	systemPrompt string,
 	history []providers.Message,
 	summary string,
 	currentMessage string,
-	memoryContext string,  // 新增参数：记忆上下文
-	media []string,
-	channel, chatID string,
+	memoryContext string,
 ) []providers.Message {
 	messages := []providers.Message{}
 
+	if summary != "" {
+		systemPrompt += "\n\n## Summary of Previous Conversation\n\n" + summary
+	}
+
+	history = sanitizeHistoryForProvider(history)
+
+	messages = append(messages, providers.Message{
+		Role:    "system",
+		Content: systemPrompt,
+	})
+
+	if memoryContext != "" {
+		messages = append(messages, providers.Message{
+			Role:    "user",
+			Content: "## Relevant Memories\n\n" + memoryContext,
+		})
+	}
+
+	messages = append(messages, history...)
+
+	if strings.TrimSpace(currentMessage) != "" {
+		messages = append(messages, providers.Message{
+			Role:    "user",
+			Content: currentMessage,
+		})
+	}
+
+	return messages
+}
+
+// AssembleBaseMessages builds the canonical provider message sequence:
+// system prompt, optional relevant memories, sanitized history, and current user input.
+// This is the base context assembly mechanism shared by the runtime.
+func (cb *ContextBuilder) AssembleBaseMessages(
+	history []providers.Message,
+	summary string,
+	currentMessage string,
+	memoryContext string,
+	media []string,
+	channel, chatID string,
+) []providers.Message {
 	systemPrompt := cb.BuildSystemPrompt()
 
 	// Add Current Session info if provided
@@ -203,35 +245,21 @@ func (cb *ContextBuilder) BuildMessages(
 			"preview": preview,
 		})
 
-	if summary != "" {
-		systemPrompt += "\n\n## Summary of Previous Conversation\n\n" + summary
-	}
+	return assembleProviderMessages(systemPrompt, history, summary, currentMessage, memoryContext)
+}
 
-	history = sanitizeHistoryForProvider(history)
-
-	messages = append(messages, providers.Message{
-		Role:    "system",
-		Content: systemPrompt,
-	})
-
-	// 新增：在系统消息之后立即添加相关记忆内容（如果有）
-	if memoryContext != "" {
-		messages = append(messages, providers.Message{
-			Role:    "user",
-			Content: "## Relevant Memories\n\n" + memoryContext,
-		})
-	}
-
-	messages = append(messages, history...)
-
-	if strings.TrimSpace(currentMessage) != "" {
-		messages = append(messages, providers.Message{
-			Role:    "user",
-			Content: currentMessage,
-		})
-	}
-
-	return messages
+// BuildMessages is a compatibility wrapper.
+// Runtime call sites should use MessageBuilder, which delegates canonical base
+// assembly to AssembleBaseMessages and then applies token-budget policies.
+func (cb *ContextBuilder) BuildMessages(
+	history []providers.Message,
+	summary string,
+	currentMessage string,
+	memoryContext string,
+	media []string,
+	channel, chatID string,
+) []providers.Message {
+	return cb.AssembleBaseMessages(history, summary, currentMessage, memoryContext, media, channel, chatID)
 }
 
 func sanitizeHistoryForProvider(history []providers.Message) []providers.Message {
@@ -353,7 +381,7 @@ func (cb *ContextBuilder) BuildMessagesOptimized(
 ) []providers.Message {
 
 	// Build the initial message sequence
-	messages := cb.BuildMessages(history, summary, currentMessage, memoryContext, media, channel, chatID)
+	messages := cb.AssembleBaseMessages(history, summary, currentMessage, memoryContext, media, channel, chatID)
 
 	// If there's no token budget constraint, return as-is
 	if tokenBudget <= 0 {

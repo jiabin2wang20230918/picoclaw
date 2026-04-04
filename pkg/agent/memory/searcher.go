@@ -4,6 +4,7 @@ package memory
 import (
 	"database/sql"
 	"strings"
+	"time"
 )
 
 // Searcher provides search capabilities over indexed memory with confidence scoring
@@ -20,13 +21,7 @@ func NewSearcher(db *sql.DB, confidenceMgr *ConfidenceTracker) *Searcher {
 	}
 }
 
-// SearchResult represents a search result with confidence scoring
-type SearchResult struct {
-	Key        string
-	Content    string
-	Confidence float64
-	Score      float64 // Combined relevance + confidence score
-}
+type SearchResult = MemoryRecord
 
 // Search performs a text-based search with confidence scoring
 func (s *Searcher) Search(query string, limit int) ([]SearchResult, error) {
@@ -41,7 +36,7 @@ func (s *Searcher) Search(query string, limit int) ([]SearchResult, error) {
 
 	// Perform search with confidence weighting
 	querySQL := `
-	SELECT key, content, confidence
+	SELECT key, content, confidence, memory_type, source_key, tags_json, reason, updated_at
 	FROM memory_items
 	WHERE LOWER(content) LIKE ?
 	ORDER BY confidence DESC, last_accessed DESC
@@ -58,8 +53,10 @@ func (s *Searcher) Search(query string, limit int) ([]SearchResult, error) {
 	for rows.Next() {
 		var key, content string
 		var confidence float64
+		var memoryType, sourceKey, tagsJSON, reason string
+		var updatedAtRaw string
 
-		if err := rows.Scan(&key, &content, &confidence); err != nil {
+		if err := rows.Scan(&key, &content, &confidence, &memoryType, &sourceKey, &tagsJSON, &reason, &updatedAtRaw); err != nil {
 			return nil, err
 		}
 
@@ -72,8 +69,13 @@ func (s *Searcher) Search(query string, limit int) ([]SearchResult, error) {
 		results = append(results, SearchResult{
 			Key:        key,
 			Content:    content,
+			Type:       normalizeMemoryType(MemoryType(memoryType)),
+			SourceKey:  sourceKey,
 			Confidence: confidence,
 			Score:      combinedScore,
+			Tags:       tagsFromJSON(tagsJSON),
+			Reason:     reason,
+			UpdatedAt:  parseSQLiteTime(updatedAtRaw),
 		})
 	}
 
@@ -152,7 +154,7 @@ func (s *Searcher) FuzzySearch(query string, threshold float64, limit int) ([]Se
 // SearchByConfidenceRange searches for items within a confidence range
 func (s *Searcher) SearchByConfidenceRange(minConfidence, maxConfidence float64, limit int) ([]SearchResult, error) {
 	querySQL := `
-	SELECT key, content, confidence
+	SELECT key, content, confidence, memory_type, source_key, tags_json, reason, updated_at
 	FROM memory_items
 	WHERE confidence BETWEEN ? AND ?
 	ORDER BY confidence DESC
@@ -169,8 +171,10 @@ func (s *Searcher) SearchByConfidenceRange(minConfidence, maxConfidence float64,
 	for rows.Next() {
 		var key, content string
 		var confidence float64
+		var memoryType, sourceKey, tagsJSON, reason string
+		var updatedAtRaw string
 
-		if err := rows.Scan(&key, &content, &confidence); err != nil {
+		if err := rows.Scan(&key, &content, &confidence, &memoryType, &sourceKey, &tagsJSON, &reason, &updatedAtRaw); err != nil {
 			return nil, err
 		}
 
@@ -178,8 +182,13 @@ func (s *Searcher) SearchByConfidenceRange(minConfidence, maxConfidence float64,
 		results = append(results, SearchResult{
 			Key:        key,
 			Content:    content,
+			Type:       normalizeMemoryType(MemoryType(memoryType)),
+			SourceKey:  sourceKey,
 			Confidence: confidence,
 			Score:      confidence,
+			Tags:       tagsFromJSON(tagsJSON),
+			Reason:     reason,
+			UpdatedAt:  parseSQLiteTime(updatedAtRaw),
 		})
 	}
 
@@ -197,7 +206,7 @@ func (s *Searcher) SearchRelated(key string, limit int) ([]SearchResult, error) 
 
 	// Find related items through relationships table
 	querySQL := `
-	SELECT mi.key, mi.content, mi.confidence
+	SELECT mi.key, mi.content, mi.confidence, mi.memory_type, mi.source_key, mi.tags_json, mi.reason, mi.updated_at
 	FROM memory_items mi
 	JOIN memory_relations mr ON mi.id = mr.to_item_id
 	WHERE mr.from_item_id = ?
@@ -215,20 +224,43 @@ func (s *Searcher) SearchRelated(key string, limit int) ([]SearchResult, error) 
 	for rows.Next() {
 		var key, content string
 		var confidence float64
+		var memoryType, sourceKey, tagsJSON, reason string
+		var updatedAtRaw string
 
-		if err := rows.Scan(&key, &content, &confidence); err != nil {
+		if err := rows.Scan(&key, &content, &confidence, &memoryType, &sourceKey, &tagsJSON, &reason, &updatedAtRaw); err != nil {
 			return nil, err
 		}
 
 		results = append(results, SearchResult{
 			Key:        key,
 			Content:    content,
+			Type:       normalizeMemoryType(MemoryType(memoryType)),
+			SourceKey:  sourceKey,
 			Confidence: confidence,
 			Score:      confidence,
+			Tags:       tagsFromJSON(tagsJSON),
+			Reason:     reason,
+			UpdatedAt:  parseSQLiteTime(updatedAtRaw),
 		})
 	}
 
 	return results, nil
+}
+
+func parseSQLiteTime(raw string) time.Time {
+	if strings.TrimSpace(raw) == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{
+		"2006-01-02 15:04:05",
+		time.RFC3339,
+		time.RFC3339Nano,
+	} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed
+		}
+	}
+	return time.Time{}
 }
 
 // SearchReverseRelated finds items that relate TO the given key
@@ -242,7 +274,7 @@ func (s *Searcher) SearchReverseRelated(key string, limit int) ([]SearchResult, 
 
 	// Find items that have relationships to this item
 	querySQL := `
-	SELECT mi.key, mi.content, mi.confidence
+	SELECT mi.key, mi.content, mi.confidence, mi.memory_type, mi.source_key, mi.tags_json, mi.reason, mi.updated_at
 	FROM memory_items mi
 	JOIN memory_relations mr ON mi.id = mr.from_item_id
 	WHERE mr.to_item_id = ?
@@ -260,16 +292,23 @@ func (s *Searcher) SearchReverseRelated(key string, limit int) ([]SearchResult, 
 	for rows.Next() {
 		var key, content string
 		var confidence float64
+		var memoryType, sourceKey, tagsJSON, reason string
+		var updatedAtRaw string
 
-		if err := rows.Scan(&key, &content, &confidence); err != nil {
+		if err := rows.Scan(&key, &content, &confidence, &memoryType, &sourceKey, &tagsJSON, &reason, &updatedAtRaw); err != nil {
 			return nil, err
 		}
 
 		results = append(results, SearchResult{
 			Key:        key,
 			Content:    content,
+			Type:       normalizeMemoryType(MemoryType(memoryType)),
+			SourceKey:  sourceKey,
 			Confidence: confidence,
 			Score:      confidence,
+			Tags:       tagsFromJSON(tagsJSON),
+			Reason:     reason,
+			UpdatedAt:  parseSQLiteTime(updatedAtRaw),
 		})
 	}
 
@@ -279,7 +318,7 @@ func (s *Searcher) SearchReverseRelated(key string, limit int) ([]SearchResult, 
 // SearchRecent finds recently accessed items
 func (s *Searcher) SearchRecent(hours int, limit int) ([]SearchResult, error) {
 	querySQL := `
-	SELECT key, content, confidence
+	SELECT key, content, confidence, memory_type, source_key, tags_json, reason, updated_at
 	FROM memory_items
 	WHERE last_accessed > datetime('now', '-? hours')
 	ORDER BY last_accessed DESC
@@ -296,16 +335,23 @@ func (s *Searcher) SearchRecent(hours int, limit int) ([]SearchResult, error) {
 	for rows.Next() {
 		var key, content string
 		var confidence float64
+		var memoryType, sourceKey, tagsJSON, reason string
+		var updatedAtRaw string
 
-		if err := rows.Scan(&key, &content, &confidence); err != nil {
+		if err := rows.Scan(&key, &content, &confidence, &memoryType, &sourceKey, &tagsJSON, &reason, &updatedAtRaw); err != nil {
 			return nil, err
 		}
 
 		results = append(results, SearchResult{
 			Key:        key,
 			Content:    content,
+			Type:       normalizeMemoryType(MemoryType(memoryType)),
+			SourceKey:  sourceKey,
 			Confidence: confidence,
 			Score:      confidence, // Could weight recency higher
+			Tags:       tagsFromJSON(tagsJSON),
+			Reason:     reason,
+			UpdatedAt:  parseSQLiteTime(updatedAtRaw),
 		})
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -572,7 +573,7 @@ func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 	msgBus := bus.NewMessageBus()
 
 	// Create a provider that fails once with a context error
-	contextErr := fmt.Errorf("InvalidParameter: Total tokens of image and text exceed max message tokens")
+	contextErr := fmt.Errorf("context length exceeded: request too large for model")
 	provider := &failFirstMockProvider{
 		failures:    1,
 		failError:   contextErr,
@@ -582,7 +583,7 @@ func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 	al := NewAgentLoop(cfg, msgBus, provider)
 
 	// Inject some history to simulate a full context
-	sessionKey := "test-session-context"
+	sessionKey := "agent:main:test-session-context"
 	// Create dummy history
 	history := []providers.Message{
 		{Role: "system", Content: "System prompt"},
@@ -596,7 +597,7 @@ func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 	if defaultAgent == nil {
 		t.Fatal("No default agent found")
 	}
-	defaultAgent.Sessions.SetHistory(sessionKey, history)
+	defaultAgent.SessionManager.SetHistory(sessionKey, history)
 
 	// Call ProcessDirectWithChannel
 	// Note: ProcessDirectWithChannel calls processMessage which will execute runLLMIteration
@@ -621,7 +622,7 @@ func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 	}
 
 	// Check final history length
-	finalHistory := defaultAgent.Sessions.GetHistory(sessionKey)
+	finalHistory := defaultAgent.SessionManager.GetHistory(sessionKey)
 	// We verify that the history has been modified (compressed)
 	// Original length: 6
 	// Expected behavior: compression drops ~50% of history (mid slice)
@@ -629,5 +630,276 @@ func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 	// Without compression: 6 + 1 (new user msg) + 1 (assistant msg) = 8
 	if len(finalHistory) >= 8 {
 		t.Errorf("Expected history to be compressed (len < 8), got %d", len(finalHistory))
+	}
+}
+
+type scriptedMockProvider struct {
+	responses []*providers.LLMResponse
+	callCount int
+	lastMsgs  [][]providers.Message
+}
+
+func (m *scriptedMockProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
+	m.callCount++
+	cp := make([]providers.Message, len(messages))
+	copy(cp, messages)
+	m.lastMsgs = append(m.lastMsgs, cp)
+
+	if len(m.responses) == 0 {
+		return &providers.LLMResponse{Content: "default"}, nil
+	}
+	resp := m.responses[0]
+	m.responses = m.responses[1:]
+	return resp, nil
+}
+
+func (m *scriptedMockProvider) GetDefaultModel() string {
+	return "scripted-mock"
+}
+
+type silentEchoTool struct{}
+
+func (t *silentEchoTool) Name() string { return "silent_echo" }
+func (t *silentEchoTool) Description() string { return "Returns a silent echo result for testing" }
+func (t *silentEchoTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"text": map[string]any{"type": "string"},
+		},
+		"required": []string{"text"},
+	}
+}
+func (t *silentEchoTool) Execute(ctx context.Context, args map[string]any) *tools.ToolResult {
+	return tools.SilentResult(fmt.Sprintf("echo:%v", args["text"]))
+}
+
+func TestAgentLoop_MessageBuilderIncludesBootstrapPrompt(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "AGENT.md"), []byte("System bootstrap from AGENT"), 0o644); err != nil {
+		t.Fatalf("write AGENT.md: %v", err)
+	}
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Model:             "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &scriptedMockProvider{
+		responses: []*providers.LLMResponse{{Content: "ok"}},
+	}
+
+	al := NewAgentLoop(cfg, msgBus, provider)
+	if _, err := al.ProcessDirectWithChannel(context.Background(), "hello", "agent:main", "test", "chat"); err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+
+	if len(provider.lastMsgs) == 0 || len(provider.lastMsgs[0]) == 0 {
+		t.Fatal("expected provider to receive messages")
+	}
+
+	systemPrompt := provider.lastMsgs[0][0].Content
+	if !strings.Contains(systemPrompt, "System bootstrap from AGENT") {
+		t.Fatalf("expected system prompt to include AGENT.md content, got: %s", systemPrompt)
+	}
+}
+
+func TestAgentLoop_PersistsToolCallAndToolResultInSession(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Model:             "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &scriptedMockProvider{
+		responses: []*providers.LLMResponse{
+			{
+				Content: "",
+				ToolCalls: []providers.ToolCall{{
+					ID:   "call_1",
+					Name: "silent_echo",
+					Arguments: map[string]any{
+						"text": "hello",
+					},
+				}},
+			},
+			{
+				Content: "final answer",
+			},
+		},
+	}
+
+	al := NewAgentLoop(cfg, msgBus, provider)
+	al.RegisterTool(&silentEchoTool{})
+
+	sessionKey := "agent:main"
+	response, err := al.ProcessDirectWithChannel(context.Background(), "run tool", sessionKey, "test", "chat")
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+	if response != "final answer" {
+		t.Fatalf("response = %q, want %q", response, "final answer")
+	}
+
+	defaultAgent := al.registry.GetDefaultAgent()
+	history := defaultAgent.SessionManager.GetHistory(sessionKey)
+	if len(history) < 4 {
+		t.Fatalf("expected session history to include tool interaction, got %d messages", len(history))
+	}
+
+	foundAssistantToolCall := false
+	foundToolResult := false
+	for _, msg := range history {
+		if msg.Role == "assistant" && len(msg.ToolCalls) == 1 && msg.ToolCalls[0].Name == "silent_echo" {
+			foundAssistantToolCall = true
+		}
+		if msg.Role == "tool" && msg.ToolCallID == "call_1" && strings.Contains(msg.Content, "echo:hello") {
+			foundToolResult = true
+		}
+	}
+
+	if !foundAssistantToolCall {
+		t.Fatal("expected assistant tool-call message to be persisted")
+	}
+	if !foundToolResult {
+		t.Fatal("expected tool result message to be persisted")
+	}
+}
+
+func TestAgentLoop_SessionReloadAfterToolUse(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Model:             "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider1 := &scriptedMockProvider{
+		responses: []*providers.LLMResponse{
+			{
+				ToolCalls: []providers.ToolCall{{
+					ID:   "call_reload",
+					Name: "silent_echo",
+					Arguments: map[string]any{
+						"text": "persisted",
+					},
+				}},
+			},
+			{Content: "stored"},
+		},
+	}
+
+	al1 := NewAgentLoop(cfg, msgBus, provider1)
+	al1.RegisterTool(&silentEchoTool{})
+	sessionKey := "agent:main"
+	if _, err := al1.ProcessDirectWithChannel(context.Background(), "first turn", sessionKey, "test", "chat"); err != nil {
+		t.Fatalf("first ProcessDirectWithChannel failed: %v", err)
+	}
+
+	provider2 := &scriptedMockProvider{
+		responses: []*providers.LLMResponse{{Content: "second turn ok"}},
+	}
+	al2 := NewAgentLoop(cfg, bus.NewMessageBus(), provider2)
+
+	if _, err := al2.ProcessDirectWithChannel(context.Background(), "second turn", sessionKey, "test", "chat"); err != nil {
+		t.Fatalf("second ProcessDirectWithChannel failed: %v", err)
+	}
+
+	if len(provider2.lastMsgs) == 0 {
+		t.Fatal("expected provider to be called on reload")
+	}
+
+	var sawPersistedToolResult bool
+	for _, msg := range provider2.lastMsgs[0] {
+		if msg.Role == "tool" && msg.ToolCallID == "call_reload" && strings.Contains(msg.Content, "echo:persisted") {
+			sawPersistedToolResult = true
+			break
+		}
+	}
+
+	if !sawPersistedToolResult {
+		t.Fatal("expected reloaded session history to include persisted tool result")
+	}
+}
+
+func TestAgentLoop_TruncatedOutputContinuation(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Model:             "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &scriptedMockProvider{
+		responses: []*providers.LLMResponse{
+			{Content: "Partial ", FinishReason: "max_tokens"},
+			{Content: "response", FinishReason: "stop"},
+		},
+	}
+
+	al := NewAgentLoop(cfg, msgBus, provider)
+	response, err := al.ProcessDirectWithChannel(context.Background(), "continue please", "agent:main", "test", "chat")
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+
+	if response != "Partial response" {
+		t.Fatalf("response = %q, want %q", response, "Partial response")
+	}
+
+	if provider.callCount != 2 {
+		t.Fatalf("expected 2 provider calls, got %d", provider.callCount)
 	}
 }

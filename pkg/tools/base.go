@@ -78,6 +78,56 @@ type ValidatingTool interface {
 	ValidateArgs(args map[string]any) error
 }
 
+// ExecutionPolicyAware allows a tool to override the default documented
+// execution policy used by the agent runtime.
+type ExecutionPolicyAware interface {
+	Tool
+	ExecutionPolicy() ToolExecutionPolicy
+}
+
+// ToolExecutionPolicy documents whether a tool is safe to run in parallel with
+// sibling tool calls from the same model turn. Phase 1 keeps runtime behavior
+// unchanged, but makes execution intent explicit in code for future refactors.
+type ToolExecutionPolicy string
+
+const (
+	ToolExecutionSerial       ToolExecutionPolicy = "serial"
+	ToolExecutionParallelSafe ToolExecutionPolicy = "parallel_safe"
+)
+
+// DefaultExecutionPolicy returns the documented execution policy for built-in tools.
+// Unknown tools default to serial semantics.
+func DefaultExecutionPolicy(toolName string) ToolExecutionPolicy {
+	switch toolName {
+	case "read_file",
+		"list_dir",
+		"find_skills",
+		"web_search",
+		"web_fetch",
+		"browser_get_text",
+		"browser_screenshot":
+		return ToolExecutionParallelSafe
+	case "write_file",
+		"edit_file",
+		"append_file",
+		"exec",
+		"message",
+		"i2c",
+		"spi",
+		"install_skill",
+		"cron",
+		"subagent",
+		"spawn",
+		"browser_navigate",
+		"browser_click",
+		"browser_fill_input",
+		"browser_execute_script":
+		return ToolExecutionSerial
+	default:
+		return ToolExecutionSerial
+	}
+}
+
 func ToolToSchema(tool Tool) map[string]any {
 	return map[string]any{
 		"type": "function",
