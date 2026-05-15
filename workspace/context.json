@@ -1,0 +1,8 @@
+{
+  "bootstrap_files": [
+    { "path": "AGENT.md", "required": true },
+    { "path": "SOUL.md" },
+    { "path": "USER.md" },
+    { "path": "IDENTITY.md" }
+  ]
+}
