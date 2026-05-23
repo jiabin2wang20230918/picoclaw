@@ -51,7 +51,13 @@ func (t *CronTool) Name() string {
 
 // Description returns the tool description
 func (t *CronTool) Description() string {
-	return "Schedule reminders, tasks, or system commands. IMPORTANT: When user asks to be reminded or scheduled, you MUST call this tool. Use 'at_seconds' for one-time reminders (e.g., 'remind me in 10 minutes' → at_seconds=600). Use 'every_seconds' ONLY for recurring tasks (e.g., 'every 2 hours' → every_seconds=7200). Use 'cron_expr' for complex recurring schedules. Use 'command' to execute shell commands directly."
+	return "Schedule recurring tasks, one-time reminders, or shell commands. " +
+		"For recurring tasks: ALWAYS use 'command' to specify the shell command directly — this avoids creating new script files each run. " +
+		"For simple text reminders only: use 'deliver=true' (just sends a message, no execution). " +
+		"For tasks needing LLM judgment: use 'deliver=false' WITHOUT command (agent will process, but this creates scripts each time — avoid for recurring tasks). " +
+		"Use 'at_seconds' for one-time reminders (e.g., 'remind me in 10 minutes' → at_seconds=600). " +
+		"Use 'every_seconds' for recurring intervals (e.g., 'every 2 hours' → every_seconds=7200). " +
+		"Use 'cron_expr' for complex recurring schedules (e.g., '0 9 * * 1-5' for weekdays at 9am)."
 }
 
 // Parameters returns the tool parameters schema
@@ -70,7 +76,7 @@ func (t *CronTool) Parameters() map[string]any {
 			},
 			"command": map[string]any{
 				"type":        "string",
-				"description": "Optional: Shell command to execute directly (e.g., 'df -h'). If set, the agent will run this command and report output instead of just showing the message. 'deliver' will be forced to false for commands.",
+				"description": "Shell command to execute when the job triggers. STRONGLY PREFERRED for recurring tasks — use this instead of relying on the agent to write scripts each time. For complex multi-step tasks, write a script file ONCE and reference it here (e.g., 'bash /path/to/script.sh'). When set, 'deliver' is forced to false and the command output is sent to the channel.",
 			},
 			"at_seconds": map[string]any{
 				"type":        "integer",
@@ -208,7 +214,14 @@ func (t *CronTool) addJob(args map[string]any) *ToolResult {
 		t.cronService.UpdateJob(job)
 	}
 
-	return SilentResult(fmt.Sprintf("Cron job added: %s (id: %s)", job.Name, job.ID))
+	result := fmt.Sprintf("Cron job added: %s (id: %s)", job.Name, job.ID)
+
+	// Warn about recurring jobs without command
+	if (schedule.Kind == "every" || schedule.Kind == "cron") && command == "" && !deliver {
+		result += "\n⚠️ Warning: Recurring job without 'command' field. Each run will invoke the agent which may create new script files. Consider adding a 'command' for efficiency."
+	}
+
+	return SilentResult(result)
 }
 
 func (t *CronTool) listJobs() *ToolResult {
