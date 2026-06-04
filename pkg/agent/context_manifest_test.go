@@ -8,7 +8,7 @@ import (
 )
 
 func TestContextBuilder_LoadBootstrapFiles_UsesManifestOrderAndFlags(t *testing.T) {
-	workspace, err := os.MkdirTemp("", "picoclaw-context-*")
+	workspace, err := os.MkdirTemp("", "quantclaw-context-*")
 	if err != nil {
 		t.Fatalf("mkdir temp: %v", err)
 	}

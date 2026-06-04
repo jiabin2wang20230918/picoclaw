@@ -1,8 +1,8 @@
-# PicoClaw Memory-Like-A-Tree Architecture
+# QuantClaw Memory-Like-A-Tree Architecture
 
 ## 概述
 
-Memory-Like-A-Tree 是为 PicoClaw 设计的一种创新记忆管理系统，受到类似树状结构的启发，将传统的线性记忆转换为具有多个抽象层级的层次化结构，从而实现对信息的高效存储、检索和上下文理解。
+Memory-Like-A-Tree 是为 QuantClaw 设计的一种创新记忆管理系统，受到类似树状结构的启发，将传统的线性记忆转换为具有多个抽象层级的层次化结构，从而实现对信息的高效存储、检索和上下文理解。
 
 ## 架构设计
 
@@ -159,7 +159,7 @@ Memory-Like-A-Tree 系统提供多种配置选项：
 
 ## 集成兼容性
 
-该系统保持了与传统 PicoClaw 记忆系统的向后兼容性：
+该系统保持了与传统 QuantClaw 记忆系统的向后兼容性：
 
 - `ReadLongTerm()` - 读取长期记忆
 - `WriteLongTerm()` - 写入长期记忆
@@ -175,4 +175,4 @@ Memory-Like-A-Tree 系统提供多种配置选项：
 - 个性化记忆服务
 - 专业领域知识管理
 
-Memory-Like-A-Tree 为 PicoClaw 提供了企业级的记忆管理能力，在保持轻量级特性的同时，显著提升了长期交互的连贯性和智能化水平。
+Memory-Like-A-Tree 为 QuantClaw 提供了企业级的记忆管理能力，在保持轻量级特性的同时，显著提升了长期交互的连贯性和智能化水平。

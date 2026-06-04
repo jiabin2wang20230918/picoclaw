@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 // PermissionChecker defines the interface for checking tool permissions.
@@ -16,7 +16,7 @@ type PermissionChecker interface {
 
 // ToolPermissions stores the permissions for tools per agent and channel.
 type ToolPermissions struct {
-	mu         sync.RWMutex
+	mu          sync.RWMutex
 	permissions map[string][]string // agentID:channel -> [allowed_tool_names]
 }
 

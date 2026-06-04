@@ -15,10 +15,10 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/logger"
+	"github.com/sipeed/quantclaw/pkg/utils"
 )
 
 type FeishuChannel struct {
@@ -102,10 +102,10 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) error
 	if len(msg.Attachments) > 0 {
 		// 发送附件（暂不实现具体上传逻辑，可后续扩展）
 		logger.WarnCF("feishu", "Attachments detected but not yet implemented for feishu", map[string]any{
-			"chat_id": msg.ChatID,
+			"chat_id":           msg.ChatID,
 			"attachments_count": len(msg.Attachments),
 		})
-		
+
 		// 发送消息内容，即使有附件也发送文本
 		if msg.Content != "" {
 			// 检查内容是否包含Markdown格式的特征
@@ -166,7 +166,7 @@ func (c *FeishuChannel) sendTextMessage(ctx context.Context, msg bus.OutboundMes
 			ReceiveId(msg.ChatID).
 			MsgType(larkim.MsgTypeText).
 			Content(string(payload)).
-			Uuid(fmt.Sprintf("picoclaw-%d", time.Now().UnixNano())).
+			Uuid(fmt.Sprintf("quantclaw-%d", time.Now().UnixNano())).
 			Build()).
 		Build()
 
@@ -202,7 +202,7 @@ func (c *FeishuChannel) sendInteractiveCardMessage(ctx context.Context, msg bus.
 			ReceiveId(msg.ChatID).
 			MsgType(larkim.MsgTypeInteractive).
 			Content(string(cardJSON)).
-			Uuid(fmt.Sprintf("picoclaw-%d", time.Now().UnixNano())).
+			Uuid(fmt.Sprintf("quantclaw-%d", time.Now().UnixNano())).
 			Build()).
 		Build()
 
@@ -243,11 +243,11 @@ func (c *FeishuChannel) buildCardElements(content string) []map[string]interface
 	if strings.Contains(content, "|") && strings.Contains(content, "-|") {
 		return c.splitByHeadingsAndTables(content)
 	}
-	
+
 	// 如果没有表格，直接返回 Markdown 元素
 	return []map[string]interface{}{
 		{
-			"tag": "markdown",
+			"tag":     "markdown",
 			"content": content,
 		},
 	}
@@ -258,7 +258,7 @@ func (c *FeishuChannel) splitByHeadingsAndTables(content string) []map[string]in
 	// 对于复杂内容，将 Markdown 作为整体发送
 	// 如果以后需要更复杂的处理，可以在这里添加表格、标题等的解析
 	elements := []map[string]interface{}{}
-	
+
 	// 检查是否有标题格式 (# ## ###)
 	if strings.Contains(content, "\n# ") || strings.Contains(content, "\n## ") || strings.Contains(content, "\n### ") {
 		// 如果包含标题，拆分处理
@@ -266,34 +266,34 @@ func (c *FeishuChannel) splitByHeadingsAndTables(content string) []map[string]in
 	} else {
 		// 否则使用单个 markdown 元素
 		elements = append(elements, map[string]interface{}{
-			"tag": "markdown",
+			"tag":     "markdown",
 			"content": content,
 		})
 	}
-	
+
 	return elements
 }
 
 // splitHeadings 拆分标题并将其转换为适当格式
 func (c *FeishuChannel) splitHeadings(content string) []map[string]interface{} {
 	elements := []map[string]interface{}{}
-	
+
 	lines := strings.Split(content, "\n")
 	inCodeBlock := false
 	var currentElementLines []string
-	
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "```") {
 			inCodeBlock = !inCodeBlock
 			currentElementLines = append(currentElementLines, line)
 			continue
 		}
-		
+
 		if inCodeBlock {
 			currentElementLines = append(currentElementLines, line)
 			continue
 		}
-		
+
 		// 检查标题格式
 		if strings.HasPrefix(line, "### ") {
 			// 添加之前累积的元素
@@ -301,19 +301,19 @@ func (c *FeishuChannel) splitHeadings(content string) []map[string]interface{} {
 				elementContent := strings.Join(currentElementLines, "\n")
 				if strings.TrimSpace(elementContent) != "" {
 					elements = append(elements, map[string]interface{}{
-						"tag": "markdown",
+						"tag":     "markdown",
 						"content": elementContent,
 					})
 				}
 				currentElementLines = []string{}
 			}
-			
+
 			// 添加标题元素
 			title := strings.TrimSpace(line[4:])
 			elements = append(elements, map[string]interface{}{
 				"tag": "div",
 				"text": map[string]interface{}{
-					"tag": "lark_md",
+					"tag":     "lark_md",
 					"content": fmt.Sprintf("**%s**", title),
 				},
 			})
@@ -323,19 +323,19 @@ func (c *FeishuChannel) splitHeadings(content string) []map[string]interface{} {
 				elementContent := strings.Join(currentElementLines, "\n")
 				if strings.TrimSpace(elementContent) != "" {
 					elements = append(elements, map[string]interface{}{
-						"tag": "markdown",
+						"tag":     "markdown",
 						"content": elementContent,
 					})
 				}
 				currentElementLines = []string{}
 			}
-			
+
 			// 添加标题元素
 			title := strings.TrimSpace(line[3:])
 			elements = append(elements, map[string]interface{}{
 				"tag": "div",
 				"text": map[string]interface{}{
-					"tag": "lark_md",
+					"tag":     "lark_md",
 					"content": fmt.Sprintf("**%s**", title),
 				},
 			})
@@ -345,19 +345,19 @@ func (c *FeishuChannel) splitHeadings(content string) []map[string]interface{} {
 				elementContent := strings.Join(currentElementLines, "\n")
 				if strings.TrimSpace(elementContent) != "" {
 					elements = append(elements, map[string]interface{}{
-						"tag": "markdown",
+						"tag":     "markdown",
 						"content": elementContent,
 					})
 				}
 				currentElementLines = []string{}
 			}
-			
+
 			// 添加标题元素
 			title := strings.TrimSpace(line[2:])
 			elements = append(elements, map[string]interface{}{
 				"tag": "div",
 				"text": map[string]interface{}{
-					"tag": "lark_md",
+					"tag":     "lark_md",
 					"content": fmt.Sprintf("**%s**", title),
 				},
 			})
@@ -365,18 +365,18 @@ func (c *FeishuChannel) splitHeadings(content string) []map[string]interface{} {
 			currentElementLines = append(currentElementLines, line)
 		}
 	}
-	
+
 	// 添加剩余的元素
 	if len(currentElementLines) > 0 {
 		elementContent := strings.Join(currentElementLines, "\n")
 		if strings.TrimSpace(elementContent) != "" {
 			elements = append(elements, map[string]interface{}{
-				"tag": "markdown",
+				"tag":     "markdown",
 				"content": elementContent,
 			})
 		}
 	}
-	
+
 	return elements
 }
 
@@ -384,23 +384,23 @@ func (c *FeishuChannel) splitHeadings(content string) []map[string]interface{} {
 func containsMarkdownElements(content string) bool {
 	// 检查常见的Markdown标记
 	markdownIndicators := []string{
-		"**",        // 粗体
-		"*",         // 斜体
-		"__",        // 下划线
-		"# ",        // 标题
-		"## ",       // 标题
-		"### ",      // 标题
-		"- ",        // 列表
-		"* ",        // 列表
-		"1. ",       // 数字列表
-		"> ",        // 引用
-		"`",         // 行内代码
-		"```",       // 代码块
-		"[",         // 链接开始
-		"](",        // 链接结束
-		"---",       // 分隔线
-		"___",       // 分隔线
-		"|",         // 表格
+		"**",   // 粗体
+		"*",    // 斜体
+		"__",   // 下划线
+		"# ",   // 标题
+		"## ",  // 标题
+		"### ", // 标题
+		"- ",   // 列表
+		"* ",   // 列表
+		"1. ",  // 数字列表
+		"> ",   // 引用
+		"`",    // 行内代码
+		"```",  // 代码块
+		"[",    // 链接开始
+		"](",   // 链接结束
+		"---",  // 分隔线
+		"___",  // 分隔线
+		"|",    // 表格
 	}
 
 	for _, indicator := range markdownIndicators {

@@ -6,7 +6,7 @@ import (
 )
 
 func TestMemoryManager_SaveRecordAndSearchStructuredMetadata(t *testing.T) {
-	workspace, err := os.MkdirTemp("", "picoclaw-memory-*")
+	workspace, err := os.MkdirTemp("", "quantclaw-memory-*")
 	if err != nil {
 		t.Fatalf("mkdir temp: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestMemoryManager_SaveRecordAndSearchStructuredMetadata(t *testing.T) {
 }
 
 func TestMemoryManager_SedimentKnowledgeWithTypeCreatesTypedRecords(t *testing.T) {
-	workspace, err := os.MkdirTemp("", "picoclaw-memory-*")
+	workspace, err := os.MkdirTemp("", "quantclaw-memory-*")
 	if err != nil {
 		t.Fatalf("mkdir temp: %v", err)
 	}

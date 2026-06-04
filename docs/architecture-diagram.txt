@@ -1,9 +1,9 @@
-PicoClaw Runtime Architecture - Current Code Path
+QuantClaw Runtime Architecture - Current Code Path
 
 ┌───────────────────────────────────────────────────────────────────────────┐
 │                           Entry Points                                   │
 │                                                                           │
-│  picoclaw agent       picoclaw gateway       cron / heartbeat / system    │
+│  quantclaw agent       quantclaw gateway       cron / heartbeat / system    │
 └───────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼

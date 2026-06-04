@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// QuantClaw - Ultra-lightweight personal AI agent
 // DingTalk channel implementation using Stream Mode
 
 package channels
@@ -11,10 +11,10 @@ import (
 	"github.com/open-dingtalk/dingtalk-stream-sdk-go/chatbot"
 	"github.com/open-dingtalk/dingtalk-stream-sdk-go/client"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/logger"
+	"github.com/sipeed/quantclaw/pkg/utils"
 )
 
 // DingTalkChannel implements the Channel interface for DingTalk (钉钉)
@@ -187,7 +187,7 @@ func (c *DingTalkChannel) SendDirectReply(ctx context.Context, sessionWebhook, c
 
 	// Convert string content to []byte for the API
 	contentBytes := []byte(content)
-	titleBytes := []byte("PicoClaw")
+	titleBytes := []byte("QuantClaw")
 
 	// Send markdown formatted reply
 	err := replier.SimpleReplyMarkdown(

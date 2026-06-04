@@ -1,8 +1,8 @@
-# PicoClaw Memory-Like-A-Tree 技术优化总结
+# QuantClaw Memory-Like-A-Tree 技术优化总结
 
 ## 概述
 
-本文档总结了 PicoClaw Memory-Like-A-Tree 记忆系统架构的完整实现。该架构实现了创新的树状记忆系统，通过多层次抽象和智能管理机制，显著改善了传统线性记忆系统的局限性。
+本文档总结了 QuantClaw Memory-Like-A-Tree 记忆系统架构的完整实现。该架构实现了创新的树状记忆系统，通过多层次抽象和智能管理机制，显著改善了传统线性记忆系统的局限性。
 
 ## 核心技术创新
 
@@ -157,7 +157,7 @@ relevance_score = content_match_weight * 0.3 + confidence_weight * 0.7
 
 ## 结论
 
-PicoClaw Memory-Like-A-Tree 架构成功实现了先进的树状记忆系统，提供了：
+QuantClaw Memory-Like-A-Tree 架构成功实现了先进的树状记忆系统，提供了：
 
 1. **显著的性能改进**: 检索速度和存储效率
 2. **智能的管理机制**: 置信度驱动的自动化维护
@@ -165,4 +165,4 @@ PicoClaw Memory-Like-A-Tree 架构成功实现了先进的树状记忆系统，�
 4. **强健的可靠性**: 完善的故障恢复机制
 5. **平滑的迁移路径**: 向后兼容的集成方式
 
-该架构使PicoClaw具备了企业级的记忆管理能力，在保持轻量级特性的同时，显著提升了智能代理的长期交互质量和知识管理水平。
+该架构使QuantClaw具备了企业级的记忆管理能力，在保持轻量级特性的同时，显著提升了智能代理的长期交互质量和知识管理水平。

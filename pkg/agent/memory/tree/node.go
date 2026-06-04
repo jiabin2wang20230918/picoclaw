@@ -1,4 +1,4 @@
-// Package tree implements a hierarchical tree-like memory system for PicoClaw.
+// Package tree implements a hierarchical tree-like memory system for QuantClaw.
 // Based on the concept of Memory-Like-A-Tree architecture where memory is organized
 // in a tree structure with nodes representing different levels of abstraction and context.
 package tree

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/bus"
 )
 
 type Channel interface {
@@ -13,7 +13,7 @@ type Channel interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Send(ctx context.Context, msg bus.OutboundMessage) error
-	SendProgress(ctx context.Context, msg bus.OutboundMessage) error  // Send progress updates to the channel
+	SendProgress(ctx context.Context, msg bus.OutboundMessage) error // Send progress updates to the channel
 	IsRunning() bool
 	IsAllowed(senderID string) bool
 }

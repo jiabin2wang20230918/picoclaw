@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 func TestRecordLastChannel(t *testing.T) {
@@ -665,7 +665,7 @@ func (m *scriptedMockProvider) GetDefaultModel() string {
 
 type silentEchoTool struct{}
 
-func (t *silentEchoTool) Name() string { return "silent_echo" }
+func (t *silentEchoTool) Name() string        { return "silent_echo" }
 func (t *silentEchoTool) Description() string { return "Returns a silent echo result for testing" }
 func (t *silentEchoTool) Parameters() map[string]any {
 	return map[string]any{

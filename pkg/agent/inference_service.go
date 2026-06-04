@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/constants"
+	"github.com/sipeed/quantclaw/pkg/logger"
+	"github.com/sipeed/quantclaw/pkg/providers"
 )
 
 type InferenceRequest struct {

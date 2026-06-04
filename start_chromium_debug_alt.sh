@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to start Chromium in remote debugging mode for PicoClaw browser tools
+# Script to start Chromium in remote debugging mode for QuantClaw browser tools
 # This is an alternative to the systemd service that has been failing
 
 echo "Preparing to start Chromium in remote debugging mode..."
@@ -9,7 +9,7 @@ echo "Preparing to start Chromium in remote debugging mode..."
 pkill -f "chromium-browser.*--remote-debugging-port=9222" 2>/dev/null || true
 
 # Create a temporary directory for Chromium profile
-CHROME_PROFILE_DIR="/tmp/chrome_picoclaw_profile"
+CHROME_PROFILE_DIR="/tmp/chrome_quantclaw_profile"
 mkdir -p $CHROME_PROFILE_DIR
 
 echo "Starting Chromium with remote debugging on port 9222..."

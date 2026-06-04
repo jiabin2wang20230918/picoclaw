@@ -1,8 +1,8 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// QuantClaw - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 QuantClaw contributors
 
 package agent
 
@@ -15,18 +15,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent/memory"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/skills"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/sipeed/quantclaw/pkg/agent/memory"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/channels"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/constants"
+	"github.com/sipeed/quantclaw/pkg/logger"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/routing"
+	"github.com/sipeed/quantclaw/pkg/skills"
+	"github.com/sipeed/quantclaw/pkg/state"
+	"github.com/sipeed/quantclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/utils"
 )
 
 type AgentLoop struct {
@@ -34,7 +34,7 @@ type AgentLoop struct {
 	cfg            *config.Config
 	registry       *AgentRegistry
 	state          *state.Manager
-	memoryManager  *memory.MemoryManager  // 新增：内存管理器
+	memoryManager  *memory.MemoryManager // 新增：内存管理器
 	running        atomic.Bool
 	summarizing    sync.Map
 	inference      *InferenceService
@@ -43,8 +43,8 @@ type AgentLoop struct {
 	activeSessions sync.Map // tracks sessions currently being processed
 
 	// Modular architecture components placeholder for future Beehive integration
-	useModular     bool // Feature flag to control which system is used
-	toolHandler    *ToolHandler // 新增：工具处理器
+	useModular  bool         // Feature flag to control which system is used
+	toolHandler *ToolHandler // 新增：工具处理器
 }
 
 // ProgressCallback is a function type for reporting progress during agent execution
@@ -94,18 +94,18 @@ func (al *AgentLoop) progressCallbackFunc(channel, chatID string) ProgressCallba
 				Metadata:    stringMetadata,
 			}
 			logger.DebugCF("agent", "Publishing progress message", map[string]any{
-				"channel": channel,
-				"chat_id": chatID,
-				"content": message,
+				"channel":  channel,
+				"chat_id":  chatID,
+				"content":  message,
 				"progress": progress,
 				"metadata": stringMetadata,
 			})
 			al.bus.PublishOutbound(progressMsg)
 		} else {
 			logger.DebugCF("agent", "Progress sending disabled, skipping progress message", map[string]any{
-				"channel": channel,
-				"chat_id": chatID,
-				"content": message,
+				"channel":  channel,
+				"chat_id":  chatID,
+				"content":  message,
 				"progress": progress,
 			})
 		}
@@ -151,17 +151,17 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	toolHandler := NewToolHandler(cfg, msgBus)
 
 	return &AgentLoop{
-		bus:            msgBus,
-		cfg:            cfg,
-		registry:       registry,
-		state:          stateManager,
-		memoryManager:  memoryManager,  // 添加到实例
-		summarizing:    sync.Map{},
-		inference:      inferenceService,
-		contextBudget:  contextBudget,
+		bus:           msgBus,
+		cfg:           cfg,
+		registry:      registry,
+		state:         stateManager,
+		memoryManager: memoryManager, // 添加到实例
+		summarizing:   sync.Map{},
+		inference:     inferenceService,
+		contextBudget: contextBudget,
 		// Initialize modular architecture support but default to disabled
-		useModular:     useModular,
-		toolHandler:    toolHandler, // 添加ToolHandler
+		useModular:  useModular,
+		toolHandler: toolHandler, // 添加ToolHandler
 	}
 }
 
@@ -731,7 +731,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 		go func() { // 异步沉淀以避免阻塞响应
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel() // 使用defer确保cancel被调用
-			_ = ctx // 显式使用ctx变量避免未使用警告
+			_ = ctx        // 显式使用ctx变量避免未使用警告
 			// 使用SedimentKnowledge方法沉淀知识
 			err := al.memoryManager.SedimentKnowledgeWithType(
 				fmt.Sprintf("Session: %s, Query: %s, Response: %s", opts.SessionKey, opts.UserMessage, finalContent),
@@ -810,13 +810,13 @@ func (al *AgentLoop) runLLMIteration(
 
 		logger.InfoCF("agent", fmt.Sprintf("LLM iteration %d completed", iteration),
 			map[string]any{
-				"iteration":      iteration,
+				"iteration":       iteration,
 				"tool_call_count": len(response.ToolCalls),
-				"content_length": len(response.Content),
-				"agent_id":       agent.ID,
-				"session_key":    opts.SessionKey,
-				"has_content":    response.Content != "",
-				"has_tools":      len(response.ToolCalls) > 0,
+				"content_length":  len(response.Content),
+				"agent_id":        agent.ID,
+				"session_key":     opts.SessionKey,
+				"has_content":     response.Content != "",
+				"has_tools":       len(response.ToolCalls) > 0,
 			})
 
 		// Check if no tool calls - we're done (or need continuation)
@@ -858,19 +858,19 @@ func (al *AgentLoop) runLLMIteration(
 				"session_key":      opts.SessionKey,
 				"tool_calls_count": len(response.ToolCalls),
 			})
-			// Additional verification: Log the last few messages to ensure tool results are present 
-			if len(messages) >= 2 { 
-				lastMsg := messages[len(messages)-1] 
-				secondLastMsg := messages[len(messages)-2] 
-				logger.InfoCF("agent", "Last two messages in sequence", 
-					map[string]any{ 
-						"second_last_role": secondLastMsg.Role, 
-						"second_last_tool_call_count": len(secondLastMsg.ToolCalls), 
-						"last_role":        lastMsg.Role, 
-						"last_tool_call_id": lastMsg.ToolCallID, 
-						"last_content_preview": utils.Truncate(lastMsg.Content, 100), 
-					}) 
-			}
+		// Additional verification: Log the last few messages to ensure tool results are present
+		if len(messages) >= 2 {
+			lastMsg := messages[len(messages)-1]
+			secondLastMsg := messages[len(messages)-2]
+			logger.InfoCF("agent", "Last two messages in sequence",
+				map[string]any{
+					"second_last_role":            secondLastMsg.Role,
+					"second_last_tool_call_count": len(secondLastMsg.ToolCalls),
+					"last_role":                   lastMsg.Role,
+					"last_tool_call_id":           lastMsg.ToolCallID,
+					"last_content_preview":        utils.Truncate(lastMsg.Content, 100),
+				})
+		}
 
 		// Check for steering/interruption
 		if steering, ok := al.bus.ConsumeSteeringForSession(opts.SessionKey); ok {
@@ -919,9 +919,9 @@ func (al *AgentLoop) processAndIntegrateToolCalls(
 ) ([]providers.Message, error) {
 	logger.InfoCF("agent", "Processing and integrating tool calls",
 		map[string]any{
-			"tool_call_count": len(response.ToolCalls),
+			"tool_call_count":      len(response.ToolCalls),
 			"message_count_before": len(messages),
-			"session_key":     opts.SessionKey,
+			"session_key":          opts.SessionKey,
 		})
 
 	// Add assistant message with tool calls to messages
@@ -968,6 +968,7 @@ func (al *AgentLoop) processAndIntegrateToolCalls(
 
 	return updatedMessages, nil
 }
+
 // processToolCalls handles the execution of tool calls with all necessary processing
 func (al *AgentLoop) processToolCalls(
 	ctx context.Context,
@@ -1016,25 +1017,25 @@ func (al *AgentLoop) processToolCalls(
 		}
 
 		// Save to session - this is critical for ensuring LLM sees results in next iteration
-			if agent.SessionManager != nil {
-				agent.SessionManager.AddToolResult(opts.SessionKey, toolResultMsg)
-				logger.InfoCF("agent", "Saved tool result to session manager",
-					map[string]any{
-						"tool_call_id": toolResultMsg.ToolCallID,
-						"content_len":  len(toolResultMsg.Content),
-						"session_key":  opts.SessionKey,
-					})
-			}
+		if agent.SessionManager != nil {
+			agent.SessionManager.AddToolResult(opts.SessionKey, toolResultMsg)
+			logger.InfoCF("agent", "Saved tool result to session manager",
+				map[string]any{
+					"tool_call_id": toolResultMsg.ToolCallID,
+					"content_len":  len(toolResultMsg.Content),
+					"session_key":  opts.SessionKey,
+				})
 		}
+	}
 
 	// Verify that the session has been updated correctly
 	if agent.SessionManager != nil {
 		history := agent.SessionManager.GetHistory(opts.SessionKey)
 		logger.InfoCF("agent", "Session history verified after tool results",
 			map[string]any{
-				"session_key":   opts.SessionKey,
-				"history_count": len(history),
-				"last_msg_role": history[len(history)-1].Role,
+				"session_key":              opts.SessionKey,
+				"history_count":            len(history),
+				"last_msg_role":            history[len(history)-1].Role,
 				"last_msg_content_preview": utils.Truncate(history[len(history)-1].Content, 100),
 			})
 	}
@@ -1087,7 +1088,7 @@ func (al *AgentLoop) handleToolResultNotification(
 		if progressCallback != nil {
 			progressCallback(0, progressContent, map[string]interface{}{
 				"tool_name": toolName,
-				"phase": "tool_completed",
+				"phase":     "tool_completed",
 			})
 		} else {
 			// If no progress callback, send directly as a progress message
@@ -1136,10 +1137,10 @@ func (al *AgentLoop) createAssistantMessage(response *providers.LLMResponse) pro
 
 	logger.InfoCF("agent", "Creating assistant message",
 		map[string]any{
-			"content_length": len(response.Content),
+			"content_length":  len(response.Content),
 			"tool_call_count": len(response.ToolCalls),
-			"has_content":    response.Content != "",
-			"has_tools":      len(response.ToolCalls) > 0,
+			"has_content":     response.Content != "",
+			"has_tools":       len(response.ToolCalls) > 0,
 		})
 
 	// Process tool calls
@@ -1180,8 +1181,8 @@ func (al *AgentLoop) createAssistantMessage(response *providers.LLMResponse) pro
 
 		logger.InfoCF("agent", "Added tool call to assistant message",
 			map[string]any{
-				"tool_call_id": toolCallEntry.ID,
-				"tool_name":    toolCallEntry.Name,
+				"tool_call_id":  toolCallEntry.ID,
+				"tool_name":     toolCallEntry.Name,
 				"arguments_len": len(toolCallEntry.Function.Arguments),
 			})
 	}
@@ -1223,7 +1224,7 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 	if al.memoryManager != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel() // 确保取消上下文
-		_ = ctx // 显式使用ctx变量避免未使用警告
+		_ = ctx        // 显式使用ctx变量避免未使用警告
 
 		// 使用之前的对话作为查询来获取相关记忆
 		previousConversation := fmt.Sprintf("Previous conversation summary: %s, Last few exchanges: %v", summary, al.getLastExchanges(history, 3))
@@ -1268,7 +1269,7 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 
 	if err != nil {
 		logger.WarnCF("agent", "Memory flush failed", map[string]any{
-			"error": err.Error(),
+			"error":       err.Error(),
 			"session_key": sessionKey,
 		})
 		return
@@ -1301,8 +1302,8 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 			argsPreview := utils.Truncate(string(argsJSON), 200)
 			logger.InfoCF("agent", fmt.Sprintf("Memory flush tool call: %s(%s)", tc.Name, argsPreview),
 				map[string]any{
-					"agent_id":  agent.ID,
-					"tool":      tc.Name,
+					"agent_id": agent.ID,
+					"tool":     tc.Name,
 				})
 
 			toolResult := agent.Tools.ExecuteWithContext(
@@ -1334,7 +1335,7 @@ func (al *AgentLoop) triggerMemoryFlush(agent *AgentInstance, sessionKey, channe
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel() // 使用defer确保cancel被调用
-					_ = ctx // 显式使用ctx变量避免未使用警告
+					_ = ctx        // 显式使用ctx变量避免未使用警告
 					// 创建一个描述工具调用和结果的摘要
 					toolResultSummary := fmt.Sprintf("Memory flush tool '%s' executed with arguments %v, result: %s", tc.Name, tc.Arguments, contentForLLM)
 					// 使用SedimentKnowledge方法沉淀工具执行结果
@@ -1365,22 +1366,22 @@ func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, c
 	// to ensure important data is saved before potential manual or error-driven
 	// compression events.
 	/*
-	if len(newHistory) > 20 || tokenEstimate > threshold {
-		summarizeKey := agent.ID + ":" + sessionKey
-		if _, loading := al.summarizing.LoadOrStore(summarizeKey, true); !loading {
-			go func() {
-				defer al.summarizing.Delete(summarizeKey)
-				if !constants.IsInternalChannel(channel) {
-					al.bus.PublishOutbound(bus.OutboundMessage{
-						Channel: channel,
-						ChatID:  chatID,
-						Content: "Memory threshold reached. Optimizing conversation history...",
-					})
-				}
-				al.summarizeSession(agent, sessionKey)
-			}()
+		if len(newHistory) > 20 || tokenEstimate > threshold {
+			summarizeKey := agent.ID + ":" + sessionKey
+			if _, loading := al.summarizing.LoadOrStore(summarizeKey, true); !loading {
+				go func() {
+					defer al.summarizing.Delete(summarizeKey)
+					if !constants.IsInternalChannel(channel) {
+						al.bus.PublishOutbound(bus.OutboundMessage{
+							Channel: channel,
+							ChatID:  chatID,
+							Content: "Memory threshold reached. Optimizing conversation history...",
+						})
+					}
+					al.summarizeSession(agent, sessionKey)
+				}()
+			}
 		}
-	}
 	*/
 }
 
@@ -1490,16 +1491,16 @@ func min(a, b int) int {
 func shouldRememberToolResult(toolName string) bool {
 	// Define tools whose results should be remembered
 	rememberTools := map[string]bool{
-		"write_file":   true,
-		"append_file":  true,
-		"mkdir":        true,
-		"save_memory":  true,
-		"web_search":   true,
-		"browser_get":  true,
-		"read_file":    true,
-		"list_files":   true,
+		"write_file":  true,
+		"append_file": true,
+		"mkdir":       true,
+		"save_memory": true,
+		"web_search":  true,
+		"browser_get": true,
+		"read_file":   true,
+		"list_files":  true,
 	}
-	
+
 	return rememberTools[toolName]
 }
 
@@ -1641,11 +1642,11 @@ func (al *AgentLoop) groupRelatedMessages(messages []providers.Message) [][]prov
 func (al *AgentLoop) getLastExchanges(history []providers.Message, n int) []providers.Message {
 	var exchanges []providers.Message
 	userMsgFound := false
-	
+
 	// Process from the end backwards
 	for i := len(history) - 1; i >= 0 && n > 0; i-- {
 		msg := history[i]
-		
+
 		if msg.Role == "user" {
 			userMsgFound = true
 			exchanges = append([]providers.Message{msg}, exchanges...)
@@ -1663,7 +1664,7 @@ func (al *AgentLoop) getLastExchanges(history []providers.Message, n int) []prov
 			}
 		}
 	}
-	
+
 	return exchanges
 }
 

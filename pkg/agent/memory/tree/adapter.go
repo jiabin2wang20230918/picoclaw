@@ -1,23 +1,23 @@
-// Package tree provides an adapter to integrate tree memory with PicoClaw's existing memory system
+// Package tree provides an adapter to integrate tree memory with QuantClaw's existing memory system
 package tree
 
 import (
 	"fmt"
+	"github.com/sipeed/quantclaw/pkg/providers"
 	"strings"
-	"github.com/sipeed/picoclaw/pkg/providers"
 	"time"
 )
 
-// TreeMemoryAdapter adapts the tree memory system to work with PicoClaw's existing interface
+// TreeMemoryAdapter adapts the tree memory system to work with QuantClaw's existing interface
 type TreeMemoryAdapter struct {
-	treeMemory *TreeMemory
+	treeMemory   *TreeMemory
 	sessionNodes map[string]string // Maps session keys to their tree node IDs
 }
 
 // NewTreeMemoryAdapter creates a new adapter for tree memory integration
 func NewTreeMemoryAdapter(workspace string) *TreeMemoryAdapter {
 	return &TreeMemoryAdapter{
-		treeMemory: NewTreeMemory(workspace),
+		treeMemory:   NewTreeMemory(workspace),
 		sessionNodes: make(map[string]string),
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/providers"
 )
 
 // SystemRule defines a rule that handles deterministic logic externally

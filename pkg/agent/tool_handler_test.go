@@ -7,21 +7,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 type concurrencyProbeTool struct {
-	name       string
-	policy     tools.ToolExecutionPolicy
-	sleep      time.Duration
-	active     *int32
-	maxActive  *int32
+	name      string
+	policy    tools.ToolExecutionPolicy
+	sleep     time.Duration
+	active    *int32
+	maxActive *int32
 }
 
-func (t *concurrencyProbeTool) Name() string { return t.name }
+func (t *concurrencyProbeTool) Name() string        { return t.name }
 func (t *concurrencyProbeTool) Description() string { return "probe tool" }
 func (t *concurrencyProbeTool) Parameters() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{}}

@@ -1,4 +1,4 @@
-// Example demonstrating the tree-like memory system for PicoClaw
+// Example demonstrating the tree-like memory system for QuantClaw
 package main
 
 import (
@@ -6,12 +6,12 @@ import (
 	"log"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent/memory"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/agent/memory"
+	"github.com/sipeed/quantclaw/pkg/providers"
 )
 
 func main() {
-	fmt.Println("PicoClaw Tree-like Memory System Demo")
+	fmt.Println("QuantClaw Tree-like Memory System Demo")
 	fmt.Println("=====================================")
 
 	// Create a new memory manager with Memory-Like-A-Tree architecture

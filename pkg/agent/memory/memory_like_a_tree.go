@@ -1,4 +1,4 @@
-// Package memory implements the Memory-Like-A-Tree architecture for PicoClaw
+// Package memory implements the Memory-Like-A-Tree architecture for QuantClaw
 package memory
 
 import (

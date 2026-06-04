@@ -1,4 +1,4 @@
-// Package memory provides the main memory manager for PicoClaw integrating the Memory-Like-A-Tree system
+// Package memory provides the main memory manager for QuantClaw integrating the Memory-Like-A-Tree system
 package memory
 
 import (

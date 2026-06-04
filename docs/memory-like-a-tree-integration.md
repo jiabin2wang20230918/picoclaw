@@ -1,14 +1,14 @@
-# PicoClaw Memory-Like-A-Tree 集成指南
+# QuantClaw Memory-Like-A-Tree 集成指南
 
 ## 系统集成概述
 
-本指南描述了如何将 Memory-Like-A-Tree 架构集成到 PicoClaw 的现有系统中，同时保持与现有功能的兼容性。
+本指南描述了如何将 Memory-Like-A-Tree 架构集成到 QuantClaw 的现有系统中，同时保持与现有功能的兼容性。
 
 ## 集成架构
 
 ```
 ┌─────────────────┐    ┌─────────────────────┐
-│   PicoClaw      │    │ Memory-Like-A-Tree  │
+│   QuantClaw      │    │ Memory-Like-A-Tree  │
 │   主系统        │◄──►│      系统           │
 └─────────────────┘    └─────────────────────┘
        │                       │
@@ -36,7 +36,7 @@
 ### 1. 初始化 Memory Manager
 
 ```go
-// 在 PicoClaw 启动时初始化 Memory-Like-A-Tree 系统
+// 在 QuantClaw 启动时初始化 Memory-Like-A-Tree 系统
 func initMemorySystem(workspace string) (*memory.MemoryManager, error) {
     memoryManager, err := memory.NewMemoryManager(workspace)
     if err != nil {
@@ -174,7 +174,7 @@ type MemoryConfig struct {
 
 ## 维护任务集成
 
-Memory-Like-A-Tree 系统提供了自动维护功能，可以集成到 PicoClaw 的定期任务中：
+Memory-Like-A-Tree 系统提供了自动维护功能，可以集成到 QuantClaw 的定期任务中：
 
 ```go
 // 启动定时维护任务
@@ -233,7 +233,7 @@ func safeMemoryOperation(memoryManager *memory.MemoryManager, operation func() e
 
 ## 迁移策略
 
-对于现有的 PicoClaw 用户，可以实现平滑迁移：
+对于现有的 QuantClaw 用户，可以实现平滑迁移：
 
 1. **双重写入阶段**：同时写入旧系统和新系统
 2. **逐步迁移**：将历史数据迁移到新系统
@@ -247,4 +247,4 @@ func safeMemoryOperation(memoryManager *memory.MemoryManager, operation func() e
 3. **用户透明**：对用户保持一致性体验
 4. **备份策略**：确保迁移过程的安全性
 
-通过这种集成方法，PicoClaw 能够充分利用 Memory-Like-A-Tree 架构的强大功能，同时保持与现有系统的兼容性，实现无缝过渡。
+通过这种集成方法，QuantClaw 能够充分利用 Memory-Like-A-Tree 架构的强大功能，同时保持与现有系统的兼容性，实现无缝过渡。

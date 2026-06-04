@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/sipeed/picoclaw/pkg/agent"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/agent"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/providers"
 )
 
 var (
@@ -35,7 +35,7 @@ func main() {
 		// Try to load from default locations
 		var err error
 		homeDir, _ := os.UserHomeDir()
-		configPath := filepath.Join(homeDir, ".picoclaw", "config.json")
+		configPath := filepath.Join(homeDir, ".quantclaw", "config.json")
 		cfg, err = config.LoadConfig(configPath)
 		if err != nil {
 			// Create a minimal default config
@@ -77,7 +77,7 @@ func main() {
 	loop := agent.NewAgentLoop(cfg, msgBus, provider)
 
 	// Create ACP agent
-	acpAgent := agent.NewPicoClawACP(loop, cfg)
+	acpAgent := agent.NewQuantClawACP(loop, cfg)
 
 	// Set up signal handling for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -89,7 +89,7 @@ func main() {
 		log.Fatalf("Failed to start ACP agent: %v", err)
 	}
 
-	fmt.Fprint(os.Stderr, "[picoclaw-acp] ACP agent initialized\n")
+	fmt.Fprint(os.Stderr, "[quantclaw-acp] ACP agent initialized\n")
 
 	// Run the ACP protocol
 	go func() {

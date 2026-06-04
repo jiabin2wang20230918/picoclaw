@@ -28,7 +28,7 @@
   "agents": {
     "defaults": {
       "model": "gpt-4o-mini",
-      "workspace": "~/.picoclaw/workspace",
+      "workspace": "~/.quantclaw/workspace",
       "max_tokens": 8192,
       "max_tool_iterations": 35,
       "send_progress": true,
@@ -201,7 +201,7 @@
   },
   "memory": {
     "enabled": true,
-    "db_path": "~/.picoclaw/memory.db",
+    "db_path": "~/.quantclaw/memory.db",
     "retention_days": 30,
     "auto_compact": true
   }

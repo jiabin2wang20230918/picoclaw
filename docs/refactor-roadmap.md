@@ -1,4 +1,4 @@
-# PicoClaw Refactor Roadmap
+# QuantClaw Refactor Roadmap
 
 This roadmap is based on the current runtime architecture in the repository today.
 
@@ -364,4 +364,4 @@ This roadmap is complete when:
 - context budget behavior is centralized
 - architecture docs match the actual runtime
 
-At that point PicoClaw will still feel like the same product, but it will be much easier to evolve safely.
+At that point QuantClaw will still feel like the same product, but it will be much easier to evolve safely.

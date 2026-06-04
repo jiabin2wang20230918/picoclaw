@@ -4,16 +4,16 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/providers"
 )
 
 // CompactionConfig holds configuration for session compaction
 type CompactionConfig struct {
-	ReserveTokens        int
-	KeepRecentTokens     int
-	ReserveTokensFloor   int
-	MemoryFlushEnabled   bool
-	SoftThresholdTokens  int
+	ReserveTokens       int
+	KeepRecentTokens    int
+	ReserveTokensFloor  int
+	MemoryFlushEnabled  bool
+	SoftThresholdTokens int
 }
 
 // MessageBuilder is the primary runtime entrypoint for provider message assembly.
@@ -123,7 +123,7 @@ func (mb *MessageBuilder) PruneSessionMemory(sessionKey string, messages []provi
 						if toolCallFound {
 							toolMsgTokens := mb.EstimateTokenCount([]providers.Message{nextMsg})
 							// Check if we can fit this tool result within our token budget
-							if accumulatedTokens + toolMsgTokens < compactionConfig.KeepRecentTokens {
+							if accumulatedTokens+toolMsgTokens < compactionConfig.KeepRecentTokens {
 								prunedMessages = append(prunedMessages, nextMsg)
 								accumulatedTokens += toolMsgTokens
 								j--
@@ -145,7 +145,7 @@ func (mb *MessageBuilder) PruneSessionMemory(sessionKey string, messages []provi
 				i = j
 			} else {
 				// Regular user/assistant message, check if fits in token budget
-				if accumulatedTokens + msgTokens < compactionConfig.KeepRecentTokens {
+				if accumulatedTokens+msgTokens < compactionConfig.KeepRecentTokens {
 					prunedMessages = append(prunedMessages, msg)
 					accumulatedTokens += msgTokens
 					i--
@@ -156,7 +156,7 @@ func (mb *MessageBuilder) PruneSessionMemory(sessionKey string, messages []provi
 			}
 		} else if msg.Role == "tool" {
 			// For tool messages, check if we should keep them based on the keepRecentTokens config
-			if accumulatedTokens + msgTokens < compactionConfig.KeepRecentTokens {
+			if accumulatedTokens+msgTokens < compactionConfig.KeepRecentTokens {
 				// Look for the corresponding assistant message that initiated this tool call
 				prunedMessages = append(prunedMessages, msg)
 				accumulatedTokens += msgTokens
@@ -167,7 +167,7 @@ func (mb *MessageBuilder) PruneSessionMemory(sessionKey string, messages []provi
 			}
 		} else {
 			// Other message types (system, etc.) - include if space permits
-			if accumulatedTokens + msgTokens < compactionConfig.KeepRecentTokens {
+			if accumulatedTokens+msgTokens < compactionConfig.KeepRecentTokens {
 				prunedMessages = append(prunedMessages, msg)
 				accumulatedTokens += msgTokens
 				i--
@@ -334,7 +334,7 @@ func (mb *MessageBuilder) getLastNMesssages(messages []providers.Message, n int)
 	// Keep all system messages (or at least the first one)
 	if len(systemMsgs) > 0 {
 		result = append(result, systemMsgs[0]) // At least the main system message
-		if len(systemMsgs) > 1 { // Include summary if available
+		if len(systemMsgs) > 1 {               // Include summary if available
 			for _, sysMsg := range systemMsgs[1:] {
 				if strings.Contains(sysMsg.Content, "Conversation Summary") {
 					result = append(result, sysMsg)

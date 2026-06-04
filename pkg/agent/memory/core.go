@@ -1,4 +1,4 @@
-// Package memory implements the Memory-Like-A-Tree architecture for PicoClaw
+// Package memory implements the Memory-Like-A-Tree architecture for QuantClaw
 // with indexer, search, sediment, confidence tracking, and maintenance mechanisms
 package memory
 

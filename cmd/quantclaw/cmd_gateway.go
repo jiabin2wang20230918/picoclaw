@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// QuantClaw - Ultra-lightweight personal AI agent
 // License: MIT
 
 package main
@@ -13,19 +13,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/cron"
-	"github.com/sipeed/picoclaw/pkg/devices"
-	"github.com/sipeed/picoclaw/pkg/health"
-	"github.com/sipeed/picoclaw/pkg/heartbeat"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/voice"
+	"github.com/sipeed/quantclaw/pkg/agent"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/channels"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/cron"
+	"github.com/sipeed/quantclaw/pkg/devices"
+	"github.com/sipeed/quantclaw/pkg/health"
+	"github.com/sipeed/quantclaw/pkg/heartbeat"
+	"github.com/sipeed/quantclaw/pkg/logger"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/state"
+	"github.com/sipeed/quantclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/voice"
 )
 
 func gatewayCmd() {

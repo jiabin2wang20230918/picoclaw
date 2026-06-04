@@ -7,7 +7,7 @@ import (
 
 func TestMemoryLifecycleModel(t *testing.T) {
 	// Create a temporary workspace for the test
-	workspace, err := os.MkdirTemp("", "picoclaw_test_*")
+	workspace, err := os.MkdirTemp("", "quantclaw_test_*")
 	if err != nil {
 		t.Fatalf("Failed to create temporary workspace: %v", err)
 	}

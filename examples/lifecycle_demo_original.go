@@ -6,18 +6,18 @@ import (
 	"log"
 	"os"
 
-	"github.com/sipeed/picoclaw/pkg/agent/memory"
+	"github.com/sipeed/quantclaw/pkg/agent/memory"
 )
 
 func main() {
 	// Create a temporary workspace for the demo
-	workspace, err := os.MkdirTemp("", "picoclaw_lifecycle_demo_*")
+	workspace, err := os.MkdirTemp("", "quantclaw_lifecycle_demo_*")
 	if err != nil {
 		log.Fatal("Failed to create temporary workspace:", err)
 	}
 	defer os.RemoveAll(workspace) // Clean up after demo
 
-	fmt.Printf("PicoClaw Memory Lifecycle Demo\n")
+	fmt.Printf("QuantClaw Memory Lifecycle Demo\n")
 	fmt.Printf("Workspace: %s\n\n", workspace)
 
 	// Initialize the Memory-Like-A-Tree system

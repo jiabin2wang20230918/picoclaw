@@ -2,7 +2,7 @@
 
 ## 实现内容
 
-已成功向 PicoClaw 添加浏览器工具功能，包括：
+已成功向 QuantClaw 添加浏览器工具功能，包括：
 
 ### 1. 工具实现 (pkg/tools/browser.go)
 - `browser_navigate`: 导航到 URL 并提取页面内容（当前实现）

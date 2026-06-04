@@ -8,20 +8,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/skills"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/logger"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/skills"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 // EnhancedContextBuilder implements a hierarchical context management system
 // with on-demand loading, information density optimization, and dynamic layering
 type EnhancedContextBuilder struct {
-	workspace             string
-	skillsLoader          *skills.SkillsLoader
-	tools                 *tools.ToolRegistry
-	activeSkillsCache     map[string]string // Cache for currently active skills
-	loadedSkills          map[string]bool   // Track which skills are currently loaded
+	workspace         string
+	skillsLoader      *skills.SkillsLoader
+	tools             *tools.ToolRegistry
+	activeSkillsCache map[string]string // Cache for currently active skills
+	loadedSkills      map[string]bool   // Track which skills are currently loaded
 }
 
 func NewEnhancedContextBuilder(workspace string) *EnhancedContextBuilder {
@@ -53,9 +53,9 @@ func (ecb *EnhancedContextBuilder) GetPersistentLayer() string {
 	// Build tools section dynamically (only descriptions, not full definitions)
 	toolsSection := ecb.buildToolsSection()
 
-	return fmt.Sprintf(`# picoclaw 🦞
+	return fmt.Sprintf(`# quantclaw 🦞
 
-You are picoclaw, a helpful AI assistant.
+You are quantclaw, a helpful AI assistant.
 
 ## Runtime
 %s
@@ -260,11 +260,11 @@ func (ecb *EnhancedContextBuilder) BuildMessages(
 	// Log system prompt summary for debugging (debug mode only)
 	logger.DebugCF("agent", "Enhanced system prompt built",
 		map[string]any{
-			"total_chars":      len(systemPrompt),
-			"total_lines":      strings.Count(systemPrompt, "\n") + 1,
-			"section_count":    strings.Count(systemPrompt, "\n\n---\n\n") + 1,
-			"active_skills":    len(activeSkills),
-			"total_skills":     len(ecb.skillsLoader.ListSkills()),
+			"total_chars":   len(systemPrompt),
+			"total_lines":   strings.Count(systemPrompt, "\n") + 1,
+			"section_count": strings.Count(systemPrompt, "\n\n---\n\n") + 1,
+			"active_skills": len(activeSkills),
+			"total_skills":  len(ecb.skillsLoader.ListSkills()),
 		})
 
 	// Log preview of system prompt (avoid logging huge content)

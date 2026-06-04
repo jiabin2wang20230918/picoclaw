@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/sipeed/picoclaw/pkg/providers"
+import "github.com/sipeed/quantclaw/pkg/providers"
 
 // ContextBudgetManager centralizes token-budget and context-compaction policy.
 // It owns lightweight heuristics and message rebuilding decisions, while the

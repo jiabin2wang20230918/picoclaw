@@ -9,14 +9,14 @@ build/
 *.test
 *.out
 *.backup
-/picoclaw
-/picoclaw-test
-cmd/picoclaw/workspace
-picoclaw-acp
-# Picoclaw specific
+/quantclaw
+/quantclaw-test
+cmd/quantclaw/workspace
+/quantclaw-acp
+# QuantClaw specific
 
-# PicoClaw
-.picoclaw/
+# QuantClaw
+.quantclaw/
 config.json
 sessions/
 build/

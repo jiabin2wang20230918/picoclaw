@@ -7,15 +7,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/providers"
 )
 
 type SubagentResult struct {
-	ID       string      `json:"id"`
-	Status   string      `json:"status"`  // "success", "error", "cancelled", "running"
-	Data     interface{} `json:"data"`
-	Error    string      `json:"error,omitempty"`
+	ID       string                 `json:"id"`
+	Status   string                 `json:"status"` // "success", "error", "cancelled", "running"
+	Data     interface{}            `json:"data"`
+	Error    string                 `json:"error,omitempty"`
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -45,8 +45,8 @@ type SubagentManager struct {
 	hasMaxTokens   bool
 	hasTemperature bool
 	nextID         int
-	maxConcurrent  int // 最大并发数限制
-	activeTasks    int // 当前活跃任务数
+	maxConcurrent  int           // 最大并发数限制
+	activeTasks    int           // 当前活跃任务数
 	taskTimeout    time.Duration // 任务超时时间
 }
 
@@ -60,7 +60,7 @@ func NewSubagentManager(
 	tools := NewToolRegistry()
 
 	// Register basic file system tools for subagents
-	tools.Register(NewReadFileTool(workspace, true))  // restricted to workspace
+	tools.Register(NewReadFileTool(workspace, true)) // restricted to workspace
 	tools.Register(NewWriteFileTool(workspace, true))
 	tools.Register(NewListDirTool(workspace, true))
 	tools.Register(NewEditFileTool(workspace, true))
@@ -76,9 +76,9 @@ func NewSubagentManager(
 		tools:         tools,
 		maxIterations: 10,
 		nextID:        1,
-		maxConcurrent: 5,                    // 默认最多5个并发任务
+		maxConcurrent: 5, // 默认最多5个并发任务
 		activeTasks:   0,
-		taskTimeout:   10 * time.Minute,    // 默认10分钟超时
+		taskTimeout:   10 * time.Minute, // 默认10分钟超时
 	}
 }
 

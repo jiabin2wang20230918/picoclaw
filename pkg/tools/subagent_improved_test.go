@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/bus"
 )
 
 func TestSubagentStructuredResults(t *testing.T) {
@@ -59,7 +59,7 @@ func TestSubagentResourceLimits(t *testing.T) {
 
 	// First task should succeed
 	args1 := map[string]any{
-		"task": "First task",
+		"task":  "First task",
 		"label": "task1",
 	}
 	result1 := spawnTool.Execute(ctx, args1)
@@ -69,7 +69,7 @@ func TestSubagentResourceLimits(t *testing.T) {
 
 	// Second task should hit the limit
 	args2 := map[string]any{
-		"task": "Second task",
+		"task":  "Second task",
 		"label": "task2",
 	}
 	_ = spawnTool.Execute(ctx, args2)

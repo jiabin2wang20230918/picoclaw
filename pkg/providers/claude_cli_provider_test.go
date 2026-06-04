@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/config"
 )
 
 // --- Compile-time interface check ---

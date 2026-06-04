@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PicoClaw is an ultra-lightweight personal AI assistant written in Go. It runs on minimal hardware (<10MB RAM) and is designed to work with various LLM providers through a flexible configuration system.
+QuantClaw is an ultra-lightweight personal AI assistant written in Go. It runs on minimal hardware (<10MB RAM) and is designed to work with various LLM providers through a flexible configuration system.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ The system follows a modular architecture with the following key components:
 
 ## Key Files Structure
 
-- `cmd/picoclaw/main.go`: Entry point with CLI command handlers
+- `cmd/quantclaw/main.go`: Entry point with CLI command handlers
 - `pkg/config/config.go`: Central configuration structure and loading
 - `pkg/agent/loop.go`: Main agent processing loop
 - `pkg/agent/instance.go`: Individual agent instance management
@@ -38,7 +38,7 @@ The system follows a modular architecture with the following key components:
 ## Configuration
 
 The system uses a flexible configuration model:
-- Default location: `~/.picoclaw/config.json`
+- Default location: `~/.quantclaw/config.json`
 - Supports multiple model providers via `model_list` configuration
 - Environment variables override JSON config (uses caarlos0/env)
 - Supports workspace restriction for security
@@ -63,7 +63,7 @@ The system uses a flexible configuration model:
 
 ## Building for Different Architectures
 
-PicoClaw supports multiple architectures including x86_64, ARM64, RISC-V, and LoongArch64, making it suitable for deployment on resource-constrained devices like single-board computers.
+QuantClaw supports multiple architectures including x86_64, ARM64, RISC-V, and LoongArch64, making it suitable for deployment on resource-constrained devices like single-board computers.
 
 ## Git Commits
 

@@ -1,8 +1,8 @@
-# PicoClaw Memory-Like-A-Tree 生命周期模型
+# QuantClaw Memory-Like-A-Tree 生命周期模型
 
 ## 概述
 
-PicoClaw Memory-Like-A-Tree 记忆系统采用了一种基于生命周期的管理模型，模拟植物的生长周期来管理记忆项。这个模型使得系统能够智能地跟踪、评估和维护记忆项目的重要性。
+QuantClaw Memory-Like-A-Tree 记忆系统采用了一种基于生命周期的管理模型，模拟植物的生长周期来管理记忆项。这个模型使得系统能够智能地跟踪、评估和维护记忆项目的重要性。
 
 ## 生命周期阶段
 

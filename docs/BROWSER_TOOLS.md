@@ -1,6 +1,6 @@
 # 浏览器工具使用指南
 
-PicoClaw 现在支持完整的浏览器自动化功能，允许代理与网页进行交互。此功能通过配置文件启用，并使用 Chrome DevTools Protocol (CDP) 实现。
+QuantClaw 现在支持完整的浏览器自动化功能，允许代理与网页进行交互。此功能通过配置文件启用，并使用 Chrome DevTools Protocol (CDP) 实现。
 
 ## 启用浏览器工具
 
@@ -42,10 +42,10 @@ PicoClaw 现在支持完整的浏览器自动化功能，允许代理与网页�
 
    ```bash
    # 基本启动命令
-   google-chrome --headless --remote-debugging-port=9222 --no-sandbox --disable-gpu --user-data-dir=/tmp/chrome_picoclaw_profile about:blank
+   google-chrome --headless --remote-debugging-port=9222 --no-sandbox --disable-gpu --user-data-dir=/tmp/chrome_quantclaw_profile about:blank
 
    # 或者作为 systemd 服务运行
-   sudo systemctl start chromium-picoclaw.service
+   sudo systemctl start chromium-quantclaw.service
    ```
 
 3. 验证 CDP 服务是否运行：
@@ -96,8 +96,8 @@ PicoClaw 现在支持完整的浏览器自动化功能，允许代理与网页�
 
 可以通过环境变量配置：
 
-- `PICOCLAW_TOOLS_BROWSER_ENABLED`: 设置为 "true" 以启用浏览器工具
-- `PICOCLAW_TOOLS_BROWSER_CDP_URL`: 设置 CDP URL
+- `QUANTCLAW_TOOLS_BROWSER_ENABLED`: 设置为 "true" 以启用浏览器工具
+- `QUANTCLAW_TOOLS_BROWSER_CDP_URL`: 设置 CDP URL
 
 ## 示例用法
 

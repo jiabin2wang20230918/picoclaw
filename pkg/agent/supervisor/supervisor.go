@@ -6,14 +6,14 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/sipeed/picoclaw/pkg/agent/interfaces"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/agent/interfaces"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/channels"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/routing"
+	"github.com/sipeed/quantclaw/pkg/state"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 // Supervisor coordinates overall agent lifecycle and component orchestration.
@@ -41,9 +41,9 @@ type AgentRegistry interface {
 func NewSupervisor(cfg *config.Config, msgBus *bus.MessageBus, provider providers.LLMProvider) *Supervisor {
 	// For now, return a minimal implementation
 	return &Supervisor{
-		bus:      msgBus,
-		cfg:      cfg,
-		running:  atomic.Bool{},
+		bus:     msgBus,
+		cfg:     cfg,
+		running: atomic.Bool{},
 	}
 }
 

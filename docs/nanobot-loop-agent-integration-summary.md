@@ -118,4 +118,4 @@ LLM Iteration → Progress Callback → Message Bus → Channel Dispatch → Use
 
 ## 总结
 
-本项目成功增强了PicoClaw的Agent Loop机制，提供了实时的进度反馈能力，改善了用户体验，特别是对于长时间运行的任务。虽然高级的LLM流式响应功能需要进一步开发，但当前的实现已经为未来的扩展奠定了良好的基础。
+本项目成功增强了QuantClaw的Agent Loop机制，提供了实时的进度反馈能力，改善了用户体验，特别是对于长时间运行的任务。虽然高级的LLM流式响应功能需要进一步开发，但当前的实现已经为未来的扩展奠定了良好的基础。

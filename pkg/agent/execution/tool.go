@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/sipeed/picoclaw/pkg/agent/interfaces"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/agent/interfaces"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/logger"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 // ToolExecutor executes tools and manages results.
@@ -31,8 +31,8 @@ func (te *ToolExecutor) ExecuteTools(ctx context.Context, agent *interfaces.Agen
 
 	// Since ToolRequest doesn't have channel/chatID info, we'll need to get it elsewhere
 	// For now, using empty strings as placeholders
-	channel := ""  // Placeholder - needs to come from somewhere else
-	chatID := ""   // Placeholder - needs to come from somewhere else
+	channel := ""        // Placeholder - needs to come from somewhere else
+	chatID := ""         // Placeholder - needs to come from somewhere else
 	sendResponse := true // Placeholder
 
 	for _, tc := range request.ToolCalls {
@@ -111,11 +111,11 @@ func (te *ToolExecutor) ExecuteTools(ctx context.Context, agent *interfaces.Agen
 	}
 
 	return &interfaces.ToolResult{
-		AgentID:         request.AgentID,
-		SessionKey:      request.SessionKey,
-		Results:         results,
-		ForUserContent:  forUserContent,
-		CorrelationID:   request.CorrelationID,
+		AgentID:        request.AgentID,
+		SessionKey:     request.SessionKey,
+		Results:        results,
+		ForUserContent: forUserContent,
+		CorrelationID:  request.CorrelationID,
 	}, nil
 }
 

@@ -1,14 +1,14 @@
-// Package interfaces defines the interfaces for the PicoClaw agent modular components.
+// Package interfaces defines the interfaces for the QuantClaw agent modular components.
 package interfaces
 
 import (
 	"context"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/session"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 // MessageRouter routes incoming messages to appropriate agents.
@@ -56,11 +56,11 @@ type LLMOrchestrator interface {
 
 // LLMResponse represents a response from the LLM after processing.
 type LLMResponse struct {
-	AgentID        string
-	SessionKey     string
-	Response       providers.LLMResponse
-	FinalContent   string
-	Iteration      int
+	AgentID      string
+	SessionKey   string
+	Response     providers.LLMResponse
+	FinalContent string
+	Iteration    int
 }
 
 // ToolExecutor executes tools and manages results.
@@ -79,11 +79,11 @@ type ToolRequest struct {
 
 // ToolResult represents the result of executing tools.
 type ToolResult struct {
-	AgentID         string
-	SessionKey      string
-	Results         []providers.Message // Tool results formatted as messages
-	ForUserContent  string              // Content to send directly to user
-	CorrelationID   string
+	AgentID        string
+	SessionKey     string
+	Results        []providers.Message // Tool results formatted as messages
+	ForUserContent string              // Content to send directly to user
+	CorrelationID  string
 }
 
 // SessionManager handles conversation history and session state.

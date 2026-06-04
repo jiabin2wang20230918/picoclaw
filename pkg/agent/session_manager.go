@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent/interfaces"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	session "github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/sipeed/quantclaw/pkg/agent/interfaces"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	session "github.com/sipeed/quantclaw/pkg/session"
+	"github.com/sipeed/quantclaw/pkg/utils"
 )
 
 // SessionManager wraps the low-level session.SessionManager and provides the

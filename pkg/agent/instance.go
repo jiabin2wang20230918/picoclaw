@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/routing"
+	"github.com/sipeed/quantclaw/pkg/session"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,
@@ -113,24 +113,24 @@ func NewAgentInstance(
 	candidates := providers.ResolveCandidates(modelCfg, defaults.Provider)
 
 	return &AgentInstance{
-		ID:             agentID,
-		Name:           agentName,
-		Model:          model,
-		Fallbacks:      fallbacks,
-		Workspace:      workspace,
-		MaxIterations:  maxIter,
-		MaxTokens:      maxTokens,
-		Temperature:    temperature,
-		ContextWindow:  maxTokens,
-		Provider:       provider,
-		Sessions:       sessionsManager,
-		SessionManager: agentSessionManager,
-		ContextBuilder: contextBuilder,
-		MessageBuilder: messageBuilder,
-		Tools:          toolsRegistry,
-		Subagents:      subagents,
-		SkillsFilter:   skillsFilter,
-		Candidates:     candidates,
+		ID:               agentID,
+		Name:             agentName,
+		Model:            model,
+		Fallbacks:        fallbacks,
+		Workspace:        workspace,
+		MaxIterations:    maxIter,
+		MaxTokens:        maxTokens,
+		Temperature:      temperature,
+		ContextWindow:    maxTokens,
+		Provider:         provider,
+		Sessions:         sessionsManager,
+		SessionManager:   agentSessionManager,
+		ContextBuilder:   contextBuilder,
+		MessageBuilder:   messageBuilder,
+		Tools:            toolsRegistry,
+		Subagents:        subagents,
+		SkillsFilter:     skillsFilter,
+		Candidates:       candidates,
 		CompactionConfig: defaults.Compaction,
 	}
 }
@@ -145,7 +145,7 @@ func resolveAgentWorkspace(agentCfg *config.AgentConfig, defaults *config.AgentD
 	}
 	home, _ := os.UserHomeDir()
 	id := routing.NormalizeAgentID(agentCfg.ID)
-	return filepath.Join(home, ".picoclaw", "workspace-"+id)
+	return filepath.Join(home, ".quantclaw", "workspace-"+id)
 }
 
 // resolveAgentModel resolves the primary model for an agent.

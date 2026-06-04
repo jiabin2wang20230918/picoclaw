@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/logger"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 // ToolHandler handles all tool-related operations
@@ -17,7 +17,6 @@ type ToolHandler struct {
 	config     *config.Config
 	messageBus *bus.MessageBus
 }
-
 
 // NewToolHandler creates a new ToolHandler
 func NewToolHandler(cfg *config.Config, messageBus *bus.MessageBus) *ToolHandler {
@@ -153,7 +152,6 @@ func (th *ToolHandler) executionPolicy(registry *tools.ToolRegistry, toolName st
 
 	return tools.DefaultExecutionPolicy(toolName)
 }
-
 
 // shouldSendToolResultToUser determines if tool result should be sent to user
 func (th *ToolHandler) shouldSendToolResultToUser(agent *AgentInstance, toolName string, result *tools.ToolResult) bool {

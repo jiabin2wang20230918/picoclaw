@@ -1,6 +1,6 @@
-# PicoClaw Runtime Architecture
+# QuantClaw Runtime Architecture
 
-This document describes the current PicoClaw runtime architecture as implemented in the repository today.
+This document describes the current QuantClaw runtime architecture as implemented in the repository today.
 
 It intentionally documents the active execution path, not earlier design drafts. In particular:
 
@@ -47,17 +47,17 @@ The primary production path is:
 
 ## Entry Modes
 
-### `picoclaw agent`
+### `quantclaw agent`
 
-`cmd/picoclaw/cmd_agent.go`
+`cmd/quantclaw/cmd_agent.go`
 
 - Direct local interaction
 - Can run single-shot or interactive mode
 - Uses `ProcessDirect()` to feed the loop without starting channels
 
-### `picoclaw gateway`
+### `quantclaw gateway`
 
-`cmd/picoclaw/cmd_gateway.go`
+`cmd/quantclaw/cmd_gateway.go`
 
 - Long-running process for real deployments
 - Starts:
@@ -126,7 +126,7 @@ This is the unit of execution selected by routing.
 
 `pkg/agent/loop.go`
 
-`AgentLoop` is the real runtime center of PicoClaw today.
+`AgentLoop` is the real runtime center of QuantClaw today.
 
 It handles:
 
@@ -322,7 +322,7 @@ These packages are useful as implementation support or future refactoring target
 
 ## Summary
 
-PicoClaw's current architecture is best understood as:
+QuantClaw's current architecture is best understood as:
 
 - a bus-driven agent runtime
 - with per-agent workspaces and sessions

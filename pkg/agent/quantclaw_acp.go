@@ -12,14 +12,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/config"
 )
 
-// PicoClawACP implements the ACP (Agent Control Protocol) interface for PicoClaw
-type PicoClawACP struct {
-	loop    *AgentLoop
-	config  *config.Config
-	model   string
+// QuantClawACP implements the ACP (Agent Control Protocol) interface for QuantClaw
+type QuantClawACP struct {
+	loop   *AgentLoop
+	config *config.Config
+	model  string
 
 	mu       sync.Mutex
 	started  bool
@@ -37,10 +37,10 @@ type PicoClawACP struct {
 
 // AgentInfo holds metadata about an agent for logging/debugging
 type AgentInfo struct {
-	Name    string // e.g. "picoclaw", "claude-acp"
+	Name    string // e.g. "quantclaw", "claude-acp"
 	Type    string // e.g. "acp", "cli", "http"
 	Model   string // e.g. "gpt-4o-mini", "sonnet"
-	Command string // binary name, e.g. "picoclaw-acp"
+	Command string // binary name, e.g. "quantclaw-acp"
 	PID     int    // subprocess PID (0 if not applicable)
 }
 
@@ -115,10 +115,10 @@ type sessionUpdate struct {
 	Text          string          `json:"text,omitempty"`
 }
 
-// NewPicoClawACP creates a new PicoClaw ACP agent
-func NewPicoClawACP(picoclawLoop *AgentLoop, cfg *config.Config) *PicoClawACP {
-	return &PicoClawACP{
-		loop:     picoclawLoop,
+// NewQuantClawACP creates a new QuantClaw ACP agent
+func NewQuantClawACP(quantclawLoop *AgentLoop, cfg *config.Config) *QuantClawACP {
+	return &QuantClawACP{
+		loop:     quantclawLoop,
 		config:   cfg,
 		model:    cfg.Agents.Defaults.Model,
 		sessions: make(map[string]string),
@@ -129,7 +129,7 @@ func NewPicoClawACP(picoclawLoop *AgentLoop, cfg *config.Config) *PicoClawACP {
 }
 
 // Start initializes the ACP protocol communication
-func (a *PicoClawACP) Start(ctx context.Context) error {
+func (a *QuantClawACP) Start(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -145,12 +145,12 @@ func (a *PicoClawACP) Start(ctx context.Context) error {
 	a.sessions = make(map[string]string)
 
 	a.started = true
-	log.Println("[picoclaw-acp] ACP agent started")
+	log.Println("[quantclaw-acp] ACP agent started")
 	return nil
 }
 
 // Stop terminates the ACP communication
-func (a *PicoClawACP) Stop() {
+func (a *QuantClawACP) Stop() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -159,11 +159,11 @@ func (a *PicoClawACP) Stop() {
 	}
 
 	a.started = false
-	log.Println("[picoclaw-acp] ACP agent stopped")
+	log.Println("[quantclaw-acp] ACP agent stopped")
 }
 
 // Run starts the ACP protocol loop and handles communication with weclaw
-func (a *PicoClawACP) Run() error {
+func (a *QuantClawACP) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -172,7 +172,7 @@ func (a *PicoClawACP) Run() error {
 		return fmt.Errorf("failed to start ACP agent: %w", err)
 	}
 
-	log.Println("[picoclaw-acp] ACP agent initialized")
+	log.Println("[quantclaw-acp] ACP agent initialized")
 
 	// Keep running until stdin is closed - this is the main loop
 	scanner := bufio.NewScanner(a.stdin)
@@ -187,7 +187,7 @@ func (a *PicoClawACP) Run() error {
 			// Check if it's a response/notification instead of a request
 			var respMsg rpcResponse
 			if err2 := json.Unmarshal([]byte(line), &respMsg); err2 != nil {
-				log.Printf("[picoclaw-acp] failed to parse message as request or response: %v (original request err: %v)", err2, err)
+				log.Printf("[quantclaw-acp] failed to parse message as request or response: %v (original request err: %v)", err2, err)
 				continue
 			}
 
@@ -201,15 +201,15 @@ func (a *PicoClawACP) Run() error {
 	}
 
 	if err := scanner.Err(); err != nil {
-		log.Printf("[picoclaw-acp] read error: %v", err)
+		log.Printf("[quantclaw-acp] read error: %v", err)
 	}
 
-	log.Println("[picoclaw-acp] ACP main loop ended")
+	log.Println("[quantclaw-acp] ACP main loop ended")
 	return nil
 }
 
 // handleResponseOrNotification processes incoming responses or notifications
-func (a *PicoClawACP) handleResponseOrNotification(msg *rpcResponse) {
+func (a *QuantClawACP) handleResponseOrNotification(msg *rpcResponse) {
 	// Handle responses to our requests
 	if msg.ID != nil && msg.Method == "" {
 		a.pendingMu.Lock()
@@ -224,33 +224,33 @@ func (a *PicoClawACP) handleResponseOrNotification(msg *rpcResponse) {
 	// Handle notifications from client
 	switch msg.Method {
 	case "initialized":
-		log.Println("[picoclaw-acp] received initialized notification")
+		log.Println("[quantclaw-acp] received initialized notification")
 	case "session/new":
-		log.Println("[picoclaw-acp] received session/new notification - creating new session context")
+		log.Println("[quantclaw-acp] received session/new notification - creating new session context")
 		// Parse params from the session/new notification
 		var params newSessionParams
 		if err := json.Unmarshal(msg.Params, &params); err != nil {
-			log.Printf("[picoclaw-acp] failed to parse session/new params: %v", err)
+			log.Printf("[quantclaw-acp] failed to parse session/new params: %v", err)
 			return
 		}
 
 		// Generate a new session ID based on the notification
-		sessionID := fmt.Sprintf("picoclaw-session-%d", time.Now().UnixNano())
+		sessionID := fmt.Sprintf("quantclaw-session-%d", time.Now().UnixNano())
 
 		// Store the session context if needed
-		log.Printf("[picoclaw-acp] created session context: %s", sessionID)
+		log.Printf("[quantclaw-acp] created session context: %s", sessionID)
 	case "initialize":
-		log.Println("[picoclaw-acp] received initialize notification")
+		log.Println("[quantclaw-acp] received initialize notification")
 		// Handle initialize as notification (rare case, but handle it)
 		// Usually initialize is a request with ID, but in some ACP variants it might be a notification
 		// In this case, we don't send a response as it's a notification
 	default:
-		log.Printf("[picoclaw-acp] unhandled method: %s", msg.Method)
+		log.Printf("[quantclaw-acp] unhandled method: %s", msg.Method)
 	}
 }
 
 // handleRequest processes incoming RPC requests
-func (a *PicoClawACP) handleRequest(req *rpcRequest) {
+func (a *QuantClawACP) handleRequest(req *rpcRequest) {
 	var result interface{}
 	var rpcErr *rpcError
 	var err error
@@ -301,8 +301,8 @@ func (a *PicoClawACP) handleRequest(req *rpcRequest) {
 }
 
 // handleInitialize handles the initialization handshake
-func (a *PicoClawACP) handleInitialize(params json.RawMessage) (interface{}, error) {
-	log.Println("[picoclaw-acp] handling initialize")
+func (a *QuantClawACP) handleInitialize(params json.RawMessage) (interface{}, error) {
+	log.Println("[quantclaw-acp] handling initialize")
 
 	var initParams initParams
 	if err := json.Unmarshal(params, &initParams); err != nil {
@@ -313,7 +313,7 @@ func (a *PicoClawACP) handleInitialize(params json.RawMessage) (interface{}, err
 	result := map[string]interface{}{
 		"protocolVersion": 1,
 		"serverInfo": map[string]string{
-			"name":    "picoclaw-acp",
+			"name":    "quantclaw-acp",
 			"version": "1.0.0",
 		},
 		"capabilities": map[string]interface{}{
@@ -326,8 +326,8 @@ func (a *PicoClawACP) handleInitialize(params json.RawMessage) (interface{}, err
 }
 
 // handleNewSession creates a new session
-func (a *PicoClawACP) handleNewSession(params json.RawMessage) (interface{}, error) {
-	log.Println("[picoclaw-acp] handling session/new")
+func (a *QuantClawACP) handleNewSession(params json.RawMessage) (interface{}, error) {
+	log.Println("[quantclaw-acp] handling session/new")
 
 	var sessionParams newSessionParams
 	if err := json.Unmarshal(params, &sessionParams); err != nil {
@@ -335,7 +335,7 @@ func (a *PicoClawACP) handleNewSession(params json.RawMessage) (interface{}, err
 	}
 
 	// Generate a new session ID
-	sessionID := fmt.Sprintf("picoclaw-session-%d", time.Now().UnixNano())
+	sessionID := fmt.Sprintf("quantclaw-session-%d", time.Now().UnixNano())
 
 	result := newSessionResult{
 		SessionID: sessionID,
@@ -345,8 +345,8 @@ func (a *PicoClawACP) handleNewSession(params json.RawMessage) (interface{}, err
 }
 
 // handlePrompt processes a prompt request
-func (a *PicoClawACP) handlePrompt(params json.RawMessage) (interface{}, error) {
-	log.Println("[picoclaw-acp] handling session/prompt")
+func (a *QuantClawACP) handlePrompt(params json.RawMessage) (interface{}, error) {
+	log.Println("[quantclaw-acp] handling session/prompt")
 
 	var promptParams promptParams
 	if err := json.Unmarshal(params, &promptParams); err != nil {
@@ -366,22 +366,22 @@ func (a *PicoClawACP) handlePrompt(params json.RawMessage) (interface{}, error) 
 		return nil, fmt.Errorf("no user message in prompt")
 	}
 
-	log.Printf("[picoclaw-acp] received user message: %.100s", userMessage)
+	log.Printf("[quantclaw-acp] received user message: %.100s", userMessage)
 
-	// Process the message with PicoClaw
+	// Process the message with QuantClaw
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 
 	// Use a fixed session key based on the ACP session ID
 	sessionKey := "acp:" + promptParams.SessionID
 
-	log.Printf("[picoclaw-acp] starting processing with session key: %s", sessionKey)
+	log.Printf("[quantclaw-acp] starting processing with session key: %s", sessionKey)
 
 	// For ACP, we may need to wait for tool execution results before returning
 	// This will block until the full interaction (including any tool calls) is complete
 	response, err := a.loop.ProcessDirectWithChannel(ctx, userMessage, sessionKey, "acp", promptParams.SessionID)
 	if err != nil {
-		log.Printf("[picoclaw-acp] failed to process message: %v", err)
+		log.Printf("[quantclaw-acp] failed to process message: %v", err)
 
 		// Even if there's an error, we should still send an error notification
 		errorUpdate := sessionUpdate{
@@ -397,13 +397,13 @@ func (a *PicoClawACP) handlePrompt(params json.RawMessage) (interface{}, error) 
 
 		// Send notification update
 		if notifyErr := a.sendNotification("session/update", updateParams); notifyErr != nil {
-			log.Printf("[picoclaw-acp] failed to send error notification: %v", notifyErr)
+			log.Printf("[quantclaw-acp] failed to send error notification: %v", notifyErr)
 		}
 
-		return nil, fmt.Errorf("failed to process message with PicoClaw: %w", err)
+		return nil, fmt.Errorf("failed to process message with QuantClaw: %w", err)
 	}
 
-	log.Printf("[picoclaw-acp] completed processing, response length: %d, response: %.200s", len(response), response)
+	log.Printf("[quantclaw-acp] completed processing, response length: %d, response: %.200s", len(response), response)
 
 	// Send the response as an update notification to stream the result
 	update := sessionUpdate{
@@ -419,7 +419,7 @@ func (a *PicoClawACP) handlePrompt(params json.RawMessage) (interface{}, error) 
 
 	// Send notification update
 	if err := a.sendNotification("session/update", updateParams); err != nil {
-		log.Printf("[picoclaw-acp] failed to send response notification: %v", err)
+		log.Printf("[quantclaw-acp] failed to send response notification: %v", err)
 		// Don't return error here as the response was processed successfully
 	}
 
@@ -432,7 +432,7 @@ func (a *PicoClawACP) handlePrompt(params json.RawMessage) (interface{}, error) 
 }
 
 // sendResponse sends a JSON-RPC response
-func (a *PicoClawACP) sendResponse(resp *rpcResponse) error {
+func (a *QuantClawACP) sendResponse(resp *rpcResponse) error {
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("marshal response: %w", err)
@@ -450,7 +450,7 @@ func (a *PicoClawACP) sendResponse(resp *rpcResponse) error {
 }
 
 // sendNotification sends a JSON-RPC notification (no ID)
-func (a *PicoClawACP) sendNotification(method string, params interface{}) error {
+func (a *QuantClawACP) sendNotification(method string, params interface{}) error {
 	msg := struct {
 		JSONRPC string      `json:"jsonrpc"`
 		Method  string      `json:"method"`
@@ -477,29 +477,28 @@ func (a *PicoClawACP) sendNotification(method string, params interface{}) error 
 	return nil
 }
 
-
 // Info returns metadata about this agent
-func (a *PicoClawACP) Info() AgentInfo {
+func (a *QuantClawACP) Info() AgentInfo {
 	return AgentInfo{
-		Name:    "picoclaw",
+		Name:    "quantclaw",
 		Type:    "acp",
 		Model:   a.model,
-		Command: "picoclaw-acp",
+		Command: "quantclaw-acp",
 	}
 }
 
 // Chat sends a message to the agent and returns the response
-func (a *PicoClawACP) Chat(ctx context.Context, conversationID string, message string) (string, error) {
+func (a *QuantClawACP) Chat(ctx context.Context, conversationID string, message string) (string, error) {
 	// For ACP, we handle Chat through the main Run loop
 	// This is used when ACP is running as a subprocess
-	// For direct API usage, we use the PicoClaw loop directly
+	// For direct API usage, we use the QuantClaw loop directly
 	sessionKey := "agent:main:acp:" + conversationID
 
 	return a.loop.ProcessDirectWithChannel(ctx, message, sessionKey, "acp", conversationID)
 }
 
 // ResetSession clears the existing session for the given conversationID
-func (a *PicoClawACP) ResetSession(ctx context.Context, conversationID string) (string, error) {
+func (a *QuantClawACP) ResetSession(ctx context.Context, conversationID string) (string, error) {
 	// In ACP mode, session reset happens naturally when a new session is created
 	sessionKey := "agent:main:acp:" + conversationID
 
@@ -508,7 +507,7 @@ func (a *PicoClawACP) ResetSession(ctx context.Context, conversationID string) (
 }
 
 // SetCwd changes the working directory for subsequent operations
-func (a *PicoClawACP) SetCwd(cwd string) {
+func (a *QuantClawACP) SetCwd(cwd string) {
 	// ACP CWD is managed by the client, but we can store it for context
-	log.Printf("[picoclaw-acp] setting CWD to: %s", cwd)
+	log.Printf("[quantclaw-acp] setting CWD to: %s", cwd)
 }

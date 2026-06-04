@@ -1,14 +1,14 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// QuantClaw - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 QuantClaw contributors
 
 package providers
 
 import (
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/config"
 )
 
 func TestExtractProtocol(t *testing.T) {

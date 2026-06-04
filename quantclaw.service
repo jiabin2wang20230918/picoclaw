@@ -1,0 +1,14 @@
+[Unit]
+Description=QuantClaw AI Agent Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=bingo
+WorkingDirectory=/home/bingo/llm/quantclaw
+ExecStart=/home/bingo/llm/quantclaw/build/quantclaw gateway
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

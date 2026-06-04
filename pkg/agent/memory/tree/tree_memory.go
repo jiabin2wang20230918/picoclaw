@@ -1,4 +1,4 @@
-// Package tree provides a hierarchical tree-like memory system for PicoClaw.
+// Package tree provides a hierarchical tree-like memory system for QuantClaw.
 // This system organizes memory in a tree structure with multiple layers of abstraction,
 // enabling efficient storage, retrieval, and contextual understanding of information.
 package tree

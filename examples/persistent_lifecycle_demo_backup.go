@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sipeed/picoclaw/pkg/agent/memory"
+	"github.com/sipeed/quantclaw/pkg/agent/memory"
 )
 
 func main() {
 	// Create a persistent workspace directory (this time we'll keep it)
-	workspace := filepath.Join(os.Getenv("HOME"), ".picoclaw", "lifecycle-demo-workspace")
+	workspace := filepath.Join(os.Getenv("HOME"), ".quantclaw", "lifecycle-demo-workspace")
 
 	// Create the workspace directory if it doesn't exist
 	err := os.MkdirAll(workspace, 0755)
@@ -20,7 +20,7 @@ func main() {
 		log.Fatal("Failed to create workspace directory:", err)
 	}
 
-	fmt.Printf("PicoClaw Persistent Memory Lifecycle Demo\n")
+	fmt.Printf("QuantClaw Persistent Memory Lifecycle Demo\n")
 	fmt.Printf("Workspace: %s\n\n", workspace)
 
 	// Initialize the Memory-Like-A-Tree system with persistent storage
@@ -35,9 +35,9 @@ func main() {
 
 	// Create a "sprout" item (confidence 0.7) - newly learned concept
 	err = memoryManager.Save("concept/machine_learning_intro",
-		"Machine learning is a method of data analysis that automates analytical model building. " +
-		"It is a branch of artificial intelligence based on the idea that systems can learn from data, " +
-		"identify patterns and make decisions with minimal human intervention.")
+		"Machine learning is a method of data analysis that automates analytical model building. "+
+			"It is a branch of artificial intelligence based on the idea that systems can learn from data, "+
+			"identify patterns and make decisions with minimal human intervention.")
 	if err != nil {
 		log.Printf("Error saving ML intro: %v", err)
 	} else {
@@ -50,9 +50,9 @@ func main() {
 
 	// Create a "green leaf" item (confidence 0.9) - important fundamental concept
 	err = memoryManager.Save("concept/python_benefits",
-		"Python is widely used for web development, data science, artificial intelligence, " +
-		"automation, and scientific computing. Its simple syntax and readability make it " +
-		"an excellent choice for beginners and experts alike.")
+		"Python is widely used for web development, data science, artificial intelligence, "+
+			"automation, and scientific computing. Its simple syntax and readability make it "+
+			"an excellent choice for beginners and experts alike.")
 	if err != nil {
 		log.Printf("Error saving Python benefits: %v", err)
 	} else {
@@ -65,8 +65,8 @@ func main() {
 
 	// Create a "yellow leaf" item (confidence 0.6) - moderately useful information
 	err = memoryManager.Save("tip/vscode_shortcuts",
-		"VSCode shortcut: Ctrl+Shift+P opens command palette. " +
-		"Ctrl+P to quick open files. Ctrl+Shift+L to select all occurrences of selected text.")
+		"VSCode shortcut: Ctrl+Shift+P opens command palette. "+
+			"Ctrl+P to quick open files. Ctrl+Shift+L to select all occurrences of selected text.")
 	if err != nil {
 		log.Printf("Error saving VSCode tips: %v", err)
 	} else {

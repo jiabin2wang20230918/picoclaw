@@ -4,9 +4,9 @@ package router
 import (
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent/interfaces"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/routing"
+	"github.com/sipeed/quantclaw/pkg/agent/interfaces"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/routing"
 )
 
 // Router handles routing of messages to the appropriate agents.

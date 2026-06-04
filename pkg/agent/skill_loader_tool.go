@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/skills"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/quantclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/skills"
+	"github.com/sipeed/quantclaw/pkg/tools"
 )
 
 // SkillLoaderTool is a specialized tool that allows the agent to dynamically load skills when needed

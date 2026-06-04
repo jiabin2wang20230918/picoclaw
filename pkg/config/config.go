@@ -168,34 +168,34 @@ type SessionConfig struct {
 }
 
 type CompactionConfig struct {
-	ReserveTokens       int               `json:"reserve_tokens"                      env:"PICOCLAW_AGENTS_DEFAULTS_COMPACTION_RESERVE_TOKENS"`
-	KeepRecentTokens    int               `json:"keep_recent_tokens"                  env:"PICOCLAW_AGENTS_DEFAULTS_COMPACTION_KEEP_RECENT_TOKENS"`
-	ReserveTokensFloor  int               `json:"reserve_tokens_floor"                env:"PICOCLAW_AGENTS_DEFAULTS_COMPACTION_RESERVE_TOKENS_FLOOR"`
+	ReserveTokens       int               `json:"reserve_tokens"                      env:"QUANTCLAW_AGENTS_DEFAULTS_COMPACTION_RESERVE_TOKENS"`
+	KeepRecentTokens    int               `json:"keep_recent_tokens"                  env:"QUANTCLAW_AGENTS_DEFAULTS_COMPACTION_KEEP_RECENT_TOKENS"`
+	ReserveTokensFloor  int               `json:"reserve_tokens_floor"                env:"QUANTCLAW_AGENTS_DEFAULTS_COMPACTION_RESERVE_TOKENS_FLOOR"`
 	MemoryFlush         MemoryFlushConfig `json:"memory_flush"`
-	MaxConcurrentSubagents int            `json:"max_concurrent_subagents,omitempty"  env:"PICOCLAW_AGENTS_DEFAULTS_MAX_CONCURRENT_SUBAGENTS"`
-	SubagentTimeoutMinutes int            `json:"subagent_timeout_minutes,omitempty"  env:"PICOCLAW_AGENTS_DEFAULTS_SUBAGENT_TIMEOUT_MINUTES"`
+	MaxConcurrentSubagents int            `json:"max_concurrent_subagents,omitempty"  env:"QUANTCLAW_AGENTS_DEFAULTS_MAX_CONCURRENT_SUBAGENTS"`
+	SubagentTimeoutMinutes int            `json:"subagent_timeout_minutes,omitempty"  env:"QUANTCLAW_AGENTS_DEFAULTS_SUBAGENT_TIMEOUT_MINUTES"`
 }
 
 type MemoryFlushConfig struct {
-	Enabled             bool `json:"enabled"                              env:"PICOCLAW_AGENTS_DEFAULTS_MEMORY_FLUSH_ENABLED"`
-	SoftThresholdTokens int  `json:"soft_threshold_tokens"                env:"PICOCLAW_AGENTS_DEFAULTS_MEMORY_FLUSH_SOFT_THRESHOLD_TOKENS"`
+	Enabled             bool `json:"enabled"                              env:"QUANTCLAW_AGENTS_DEFAULTS_MEMORY_FLUSH_ENABLED"`
+	SoftThresholdTokens int  `json:"soft_threshold_tokens"                env:"QUANTCLAW_AGENTS_DEFAULTS_MEMORY_FLUSH_SOFT_THRESHOLD_TOKENS"`
 }
 
 type AgentDefaults struct {
-	Workspace           string            `json:"workspace"                       env:"PICOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
-	RestrictToWorkspace bool              `json:"restrict_to_workspace"           env:"PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
-	Provider            string            `json:"provider"                        env:"PICOCLAW_AGENTS_DEFAULTS_PROVIDER"`
-	Model               string            `json:"model"                           env:"PICOCLAW_AGENTS_DEFAULTS_MODEL"`
+	Workspace           string            `json:"workspace"                       env:"QUANTCLAW_AGENTS_DEFAULTS_WORKSPACE"`
+	RestrictToWorkspace bool              `json:"restrict_to_workspace"           env:"QUANTCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
+	Provider            string            `json:"provider"                        env:"QUANTCLAW_AGENTS_DEFAULTS_PROVIDER"`
+	Model               string            `json:"model"                           env:"QUANTCLAW_AGENTS_DEFAULTS_MODEL"`
 	ModelFallbacks      []string          `json:"model_fallbacks,omitempty"`
-	ImageModel          string            `json:"image_model,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
+	ImageModel          string            `json:"image_model,omitempty"           env:"QUANTCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
 	ImageModelFallbacks []string          `json:"image_model_fallbacks,omitempty"`
-	MaxTokens           int               `json:"max_tokens"                      env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
-	Temperature         *float64          `json:"temperature,omitempty"           env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
-	MaxToolIterations   int               `json:"max_tool_iterations"             env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	MaxTokens           int               `json:"max_tokens"                      env:"QUANTCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
+	Temperature         *float64          `json:"temperature,omitempty"           env:"QUANTCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
+	MaxToolIterations   int               `json:"max_tool_iterations"             env:"QUANTCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
 	Compaction          CompactionConfig  `json:"compaction"`
-	SendProgress        bool              `json:"send_progress"                   env:"PICOCLAW_AGENTS_DEFAULTS_SEND_PROGRESS"`
-	SendToolHints       bool              `json:"send_tool_hints"                 env:"PICOCLAW_AGENTS_DEFAULTS_SEND_TOOL_HINTS"`
-	StreamingEnabled    bool              `json:"streaming_enabled"               env:"PICOCLAW_AGENTS_DEFAULTS_STREAMING_ENABLED"`
+	SendProgress        bool              `json:"send_progress"                   env:"QUANTCLAW_AGENTS_DEFAULTS_SEND_PROGRESS"`
+	SendToolHints       bool              `json:"send_tool_hints"                 env:"QUANTCLAW_AGENTS_DEFAULTS_SEND_TOOL_HINTS"`
+	StreamingEnabled    bool              `json:"streaming_enabled"               env:"QUANTCLAW_AGENTS_DEFAULTS_STREAMING_ENABLED"`
 }
 
 type ChannelsConfig struct {
@@ -214,115 +214,115 @@ type ChannelsConfig struct {
 }
 
 type WhatsAppConfig struct {
-	Enabled   bool                `json:"enabled"    env:"PICOCLAW_CHANNELS_WHATSAPP_ENABLED"`
-	BridgeURL string              `json:"bridge_url" env:"PICOCLAW_CHANNELS_WHATSAPP_BRIDGE_URL"`
-	AllowFrom FlexibleStringSlice `json:"allow_from" env:"PICOCLAW_CHANNELS_WHATSAPP_ALLOW_FROM"`
+	Enabled   bool                `json:"enabled"    env:"QUANTCLAW_CHANNELS_WHATSAPP_ENABLED"`
+	BridgeURL string              `json:"bridge_url" env:"QUANTCLAW_CHANNELS_WHATSAPP_BRIDGE_URL"`
+	AllowFrom FlexibleStringSlice `json:"allow_from" env:"QUANTCLAW_CHANNELS_WHATSAPP_ALLOW_FROM"`
 }
 
 type TelegramConfig struct {
-	Enabled   bool                `json:"enabled"    env:"PICOCLAW_CHANNELS_TELEGRAM_ENABLED"`
-	Token     string              `json:"token"      env:"PICOCLAW_CHANNELS_TELEGRAM_TOKEN"`
-	Proxy     string              `json:"proxy"      env:"PICOCLAW_CHANNELS_TELEGRAM_PROXY"`
-	AllowFrom FlexibleStringSlice `json:"allow_from" env:"PICOCLAW_CHANNELS_TELEGRAM_ALLOW_FROM"`
+	Enabled   bool                `json:"enabled"    env:"QUANTCLAW_CHANNELS_TELEGRAM_ENABLED"`
+	Token     string              `json:"token"      env:"QUANTCLAW_CHANNELS_TELEGRAM_TOKEN"`
+	Proxy     string              `json:"proxy"      env:"QUANTCLAW_CHANNELS_TELEGRAM_PROXY"`
+	AllowFrom FlexibleStringSlice `json:"allow_from" env:"QUANTCLAW_CHANNELS_TELEGRAM_ALLOW_FROM"`
 }
 
 type FeishuConfig struct {
-	Enabled           bool                `json:"enabled"            env:"PICOCLAW_CHANNELS_FEISHU_ENABLED"`
-	AppID             string              `json:"app_id"             env:"PICOCLAW_CHANNELS_FEISHU_APP_ID"`
-	AppSecret         string              `json:"app_secret"         env:"PICOCLAW_CHANNELS_FEISHU_APP_SECRET"`
-	EncryptKey        string              `json:"encrypt_key"        env:"PICOCLAW_CHANNELS_FEISHU_ENCRYPT_KEY"`
-	VerificationToken string              `json:"verification_token" env:"PICOCLAW_CHANNELS_FEISHU_VERIFICATION_TOKEN"`
-	AllowFrom         FlexibleStringSlice `json:"allow_from"         env:"PICOCLAW_CHANNELS_FEISHU_ALLOW_FROM"`
+	Enabled           bool                `json:"enabled"            env:"QUANTCLAW_CHANNELS_FEISHU_ENABLED"`
+	AppID             string              `json:"app_id"             env:"QUANTCLAW_CHANNELS_FEISHU_APP_ID"`
+	AppSecret         string              `json:"app_secret"         env:"QUANTCLAW_CHANNELS_FEISHU_APP_SECRET"`
+	EncryptKey        string              `json:"encrypt_key"        env:"QUANTCLAW_CHANNELS_FEISHU_ENCRYPT_KEY"`
+	VerificationToken string              `json:"verification_token" env:"QUANTCLAW_CHANNELS_FEISHU_VERIFICATION_TOKEN"`
+	AllowFrom         FlexibleStringSlice `json:"allow_from"         env:"QUANTCLAW_CHANNELS_FEISHU_ALLOW_FROM"`
 }
 
 type DiscordConfig struct {
-	Enabled     bool                `json:"enabled"      env:"PICOCLAW_CHANNELS_DISCORD_ENABLED"`
-	Token       string              `json:"token"        env:"PICOCLAW_CHANNELS_DISCORD_TOKEN"`
-	AllowFrom   FlexibleStringSlice `json:"allow_from"   env:"PICOCLAW_CHANNELS_DISCORD_ALLOW_FROM"`
-	MentionOnly bool                `json:"mention_only" env:"PICOCLAW_CHANNELS_DISCORD_MENTION_ONLY"`
+	Enabled     bool                `json:"enabled"      env:"QUANTCLAW_CHANNELS_DISCORD_ENABLED"`
+	Token       string              `json:"token"        env:"QUANTCLAW_CHANNELS_DISCORD_TOKEN"`
+	AllowFrom   FlexibleStringSlice `json:"allow_from"   env:"QUANTCLAW_CHANNELS_DISCORD_ALLOW_FROM"`
+	MentionOnly bool                `json:"mention_only" env:"QUANTCLAW_CHANNELS_DISCORD_MENTION_ONLY"`
 }
 
 type MaixCamConfig struct {
-	Enabled   bool                `json:"enabled"    env:"PICOCLAW_CHANNELS_MAIXCAM_ENABLED"`
-	Host      string              `json:"host"       env:"PICOCLAW_CHANNELS_MAIXCAM_HOST"`
-	Port      int                 `json:"port"       env:"PICOCLAW_CHANNELS_MAIXCAM_PORT"`
-	AllowFrom FlexibleStringSlice `json:"allow_from" env:"PICOCLAW_CHANNELS_MAIXCAM_ALLOW_FROM"`
+	Enabled   bool                `json:"enabled"    env:"QUANTCLAW_CHANNELS_MAIXCAM_ENABLED"`
+	Host      string              `json:"host"       env:"QUANTCLAW_CHANNELS_MAIXCAM_HOST"`
+	Port      int                 `json:"port"       env:"QUANTCLAW_CHANNELS_MAIXCAM_PORT"`
+	AllowFrom FlexibleStringSlice `json:"allow_from" env:"QUANTCLAW_CHANNELS_MAIXCAM_ALLOW_FROM"`
 }
 
 type QQConfig struct {
-	Enabled   bool                `json:"enabled"    env:"PICOCLAW_CHANNELS_QQ_ENABLED"`
-	AppID     string              `json:"app_id"     env:"PICOCLAW_CHANNELS_QQ_APP_ID"`
-	AppSecret string              `json:"app_secret" env:"PICOCLAW_CHANNELS_QQ_APP_SECRET"`
-	AllowFrom FlexibleStringSlice `json:"allow_from" env:"PICOCLAW_CHANNELS_QQ_ALLOW_FROM"`
+	Enabled   bool                `json:"enabled"    env:"QUANTCLAW_CHANNELS_QQ_ENABLED"`
+	AppID     string              `json:"app_id"     env:"QUANTCLAW_CHANNELS_QQ_APP_ID"`
+	AppSecret string              `json:"app_secret" env:"QUANTCLAW_CHANNELS_QQ_APP_SECRET"`
+	AllowFrom FlexibleStringSlice `json:"allow_from" env:"QUANTCLAW_CHANNELS_QQ_ALLOW_FROM"`
 }
 
 type DingTalkConfig struct {
-	Enabled      bool                `json:"enabled"       env:"PICOCLAW_CHANNELS_DINGTALK_ENABLED"`
-	ClientID     string              `json:"client_id"     env:"PICOCLAW_CHANNELS_DINGTALK_CLIENT_ID"`
-	ClientSecret string              `json:"client_secret" env:"PICOCLAW_CHANNELS_DINGTALK_CLIENT_SECRET"`
-	AllowFrom    FlexibleStringSlice `json:"allow_from"    env:"PICOCLAW_CHANNELS_DINGTALK_ALLOW_FROM"`
+	Enabled      bool                `json:"enabled"       env:"QUANTCLAW_CHANNELS_DINGTALK_ENABLED"`
+	ClientID     string              `json:"client_id"     env:"QUANTCLAW_CHANNELS_DINGTALK_CLIENT_ID"`
+	ClientSecret string              `json:"client_secret" env:"QUANTCLAW_CHANNELS_DINGTALK_CLIENT_SECRET"`
+	AllowFrom    FlexibleStringSlice `json:"allow_from"    env:"QUANTCLAW_CHANNELS_DINGTALK_ALLOW_FROM"`
 }
 
 type SlackConfig struct {
-	Enabled   bool                `json:"enabled"    env:"PICOCLAW_CHANNELS_SLACK_ENABLED"`
-	BotToken  string              `json:"bot_token"  env:"PICOCLAW_CHANNELS_SLACK_BOT_TOKEN"`
-	AppToken  string              `json:"app_token"  env:"PICOCLAW_CHANNELS_SLACK_APP_TOKEN"`
-	AllowFrom FlexibleStringSlice `json:"allow_from" env:"PICOCLAW_CHANNELS_SLACK_ALLOW_FROM"`
+	Enabled   bool                `json:"enabled"    env:"QUANTCLAW_CHANNELS_SLACK_ENABLED"`
+	BotToken  string              `json:"bot_token"  env:"QUANTCLAW_CHANNELS_SLACK_BOT_TOKEN"`
+	AppToken  string              `json:"app_token"  env:"QUANTCLAW_CHANNELS_SLACK_APP_TOKEN"`
+	AllowFrom FlexibleStringSlice `json:"allow_from" env:"QUANTCLAW_CHANNELS_SLACK_ALLOW_FROM"`
 }
 
 type LINEConfig struct {
-	Enabled            bool                `json:"enabled"              env:"PICOCLAW_CHANNELS_LINE_ENABLED"`
-	ChannelSecret      string              `json:"channel_secret"       env:"PICOCLAW_CHANNELS_LINE_CHANNEL_SECRET"`
-	ChannelAccessToken string              `json:"channel_access_token" env:"PICOCLAW_CHANNELS_LINE_CHANNEL_ACCESS_TOKEN"`
-	WebhookHost        string              `json:"webhook_host"         env:"PICOCLAW_CHANNELS_LINE_WEBHOOK_HOST"`
-	WebhookPort        int                 `json:"webhook_port"         env:"PICOCLAW_CHANNELS_LINE_WEBHOOK_PORT"`
-	WebhookPath        string              `json:"webhook_path"         env:"PICOCLAW_CHANNELS_LINE_WEBHOOK_PATH"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"           env:"PICOCLAW_CHANNELS_LINE_ALLOW_FROM"`
+	Enabled            bool                `json:"enabled"              env:"QUANTCLAW_CHANNELS_LINE_ENABLED"`
+	ChannelSecret      string              `json:"channel_secret"       env:"QUANTCLAW_CHANNELS_LINE_CHANNEL_SECRET"`
+	ChannelAccessToken string              `json:"channel_access_token" env:"QUANTCLAW_CHANNELS_LINE_CHANNEL_ACCESS_TOKEN"`
+	WebhookHost        string              `json:"webhook_host"         env:"QUANTCLAW_CHANNELS_LINE_WEBHOOK_HOST"`
+	WebhookPort        int                 `json:"webhook_port"         env:"QUANTCLAW_CHANNELS_LINE_WEBHOOK_PORT"`
+	WebhookPath        string              `json:"webhook_path"         env:"QUANTCLAW_CHANNELS_LINE_WEBHOOK_PATH"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from"           env:"QUANTCLAW_CHANNELS_LINE_ALLOW_FROM"`
 }
 
 type OneBotConfig struct {
-	Enabled            bool                `json:"enabled"              env:"PICOCLAW_CHANNELS_ONEBOT_ENABLED"`
-	WSUrl              string              `json:"ws_url"               env:"PICOCLAW_CHANNELS_ONEBOT_WS_URL"`
-	AccessToken        string              `json:"access_token"         env:"PICOCLAW_CHANNELS_ONEBOT_ACCESS_TOKEN"`
-	ReconnectInterval  int                 `json:"reconnect_interval"   env:"PICOCLAW_CHANNELS_ONEBOT_RECONNECT_INTERVAL"`
-	GroupTriggerPrefix []string            `json:"group_trigger_prefix" env:"PICOCLAW_CHANNELS_ONEBOT_GROUP_TRIGGER_PREFIX"`
-	AllowFrom          FlexibleStringSlice `json:"allow_from"           env:"PICOCLAW_CHANNELS_ONEBOT_ALLOW_FROM"`
+	Enabled            bool                `json:"enabled"              env:"QUANTCLAW_CHANNELS_ONEBOT_ENABLED"`
+	WSUrl              string              `json:"ws_url"               env:"QUANTCLAW_CHANNELS_ONEBOT_WS_URL"`
+	AccessToken        string              `json:"access_token"         env:"QUANTCLAW_CHANNELS_ONEBOT_ACCESS_TOKEN"`
+	ReconnectInterval  int                 `json:"reconnect_interval"   env:"QUANTCLAW_CHANNELS_ONEBOT_RECONNECT_INTERVAL"`
+	GroupTriggerPrefix []string            `json:"group_trigger_prefix" env:"QUANTCLAW_CHANNELS_ONEBOT_GROUP_TRIGGER_PREFIX"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from"           env:"QUANTCLAW_CHANNELS_ONEBOT_ALLOW_FROM"`
 }
 
 type WeComConfig struct {
-	Enabled        bool                `json:"enabled"          env:"PICOCLAW_CHANNELS_WECOM_ENABLED"`
-	Token          string              `json:"token"            env:"PICOCLAW_CHANNELS_WECOM_TOKEN"`
-	EncodingAESKey string              `json:"encoding_aes_key" env:"PICOCLAW_CHANNELS_WECOM_ENCODING_AES_KEY"`
-	WebhookURL     string              `json:"webhook_url"      env:"PICOCLAW_CHANNELS_WECOM_WEBHOOK_URL"`
-	WebhookHost    string              `json:"webhook_host"     env:"PICOCLAW_CHANNELS_WECOM_WEBHOOK_HOST"`
-	WebhookPort    int                 `json:"webhook_port"     env:"PICOCLAW_CHANNELS_WECOM_WEBHOOK_PORT"`
-	WebhookPath    string              `json:"webhook_path"     env:"PICOCLAW_CHANNELS_WECOM_WEBHOOK_PATH"`
-	AllowFrom      FlexibleStringSlice `json:"allow_from"       env:"PICOCLAW_CHANNELS_WECOM_ALLOW_FROM"`
-	ReplyTimeout   int                 `json:"reply_timeout"    env:"PICOCLAW_CHANNELS_WECOM_REPLY_TIMEOUT"`
+	Enabled        bool                `json:"enabled"          env:"QUANTCLAW_CHANNELS_WECOM_ENABLED"`
+	Token          string              `json:"token"            env:"QUANTCLAW_CHANNELS_WECOM_TOKEN"`
+	EncodingAESKey string              `json:"encoding_aes_key" env:"QUANTCLAW_CHANNELS_WECOM_ENCODING_AES_KEY"`
+	WebhookURL     string              `json:"webhook_url"      env:"QUANTCLAW_CHANNELS_WECOM_WEBHOOK_URL"`
+	WebhookHost    string              `json:"webhook_host"     env:"QUANTCLAW_CHANNELS_WECOM_WEBHOOK_HOST"`
+	WebhookPort    int                 `json:"webhook_port"     env:"QUANTCLAW_CHANNELS_WECOM_WEBHOOK_PORT"`
+	WebhookPath    string              `json:"webhook_path"     env:"QUANTCLAW_CHANNELS_WECOM_WEBHOOK_PATH"`
+	AllowFrom      FlexibleStringSlice `json:"allow_from"       env:"QUANTCLAW_CHANNELS_WECOM_ALLOW_FROM"`
+	ReplyTimeout   int                 `json:"reply_timeout"    env:"QUANTCLAW_CHANNELS_WECOM_REPLY_TIMEOUT"`
 }
 
 type WeComAppConfig struct {
-	Enabled        bool                `json:"enabled"          env:"PICOCLAW_CHANNELS_WECOM_APP_ENABLED"`
-	CorpID         string              `json:"corp_id"          env:"PICOCLAW_CHANNELS_WECOM_APP_CORP_ID"`
-	CorpSecret     string              `json:"corp_secret"      env:"PICOCLAW_CHANNELS_WECOM_APP_CORP_SECRET"`
-	AgentID        int64               `json:"agent_id"         env:"PICOCLAW_CHANNELS_WECOM_APP_AGENT_ID"`
-	Token          string              `json:"token"            env:"PICOCLAW_CHANNELS_WECOM_APP_TOKEN"`
-	EncodingAESKey string              `json:"encoding_aes_key" env:"PICOCLAW_CHANNELS_WECOM_APP_ENCODING_AES_KEY"`
-	WebhookHost    string              `json:"webhook_host"     env:"PICOCLAW_CHANNELS_WECOM_APP_WEBHOOK_HOST"`
-	WebhookPort    int                 `json:"webhook_port"     env:"PICOCLAW_CHANNELS_WECOM_APP_WEBHOOK_PORT"`
-	WebhookPath    string              `json:"webhook_path"     env:"PICOCLAW_CHANNELS_WECOM_APP_WEBHOOK_PATH"`
-	AllowFrom      FlexibleStringSlice `json:"allow_from"       env:"PICOCLAW_CHANNELS_WECOM_APP_ALLOW_FROM"`
-	ReplyTimeout   int                 `json:"reply_timeout"    env:"PICOCLAW_CHANNELS_WECOM_APP_REPLY_TIMEOUT"`
+	Enabled        bool                `json:"enabled"          env:"QUANTCLAW_CHANNELS_WECOM_APP_ENABLED"`
+	CorpID         string              `json:"corp_id"          env:"QUANTCLAW_CHANNELS_WECOM_APP_CORP_ID"`
+	CorpSecret     string              `json:"corp_secret"      env:"QUANTCLAW_CHANNELS_WECOM_APP_CORP_SECRET"`
+	AgentID        int64               `json:"agent_id"         env:"QUANTCLAW_CHANNELS_WECOM_APP_AGENT_ID"`
+	Token          string              `json:"token"            env:"QUANTCLAW_CHANNELS_WECOM_APP_TOKEN"`
+	EncodingAESKey string              `json:"encoding_aes_key" env:"QUANTCLAW_CHANNELS_WECOM_APP_ENCODING_AES_KEY"`
+	WebhookHost    string              `json:"webhook_host"     env:"QUANTCLAW_CHANNELS_WECOM_APP_WEBHOOK_HOST"`
+	WebhookPort    int                 `json:"webhook_port"     env:"QUANTCLAW_CHANNELS_WECOM_APP_WEBHOOK_PORT"`
+	WebhookPath    string              `json:"webhook_path"     env:"QUANTCLAW_CHANNELS_WECOM_APP_WEBHOOK_PATH"`
+	AllowFrom      FlexibleStringSlice `json:"allow_from"       env:"QUANTCLAW_CHANNELS_WECOM_APP_ALLOW_FROM"`
+	ReplyTimeout   int                 `json:"reply_timeout"    env:"QUANTCLAW_CHANNELS_WECOM_APP_REPLY_TIMEOUT"`
 }
 
 type HeartbeatConfig struct {
-	Enabled  bool `json:"enabled"  env:"PICOCLAW_HEARTBEAT_ENABLED"`
-	Interval int  `json:"interval" env:"PICOCLAW_HEARTBEAT_INTERVAL"` // minutes, min 5
+	Enabled  bool `json:"enabled"  env:"QUANTCLAW_HEARTBEAT_ENABLED"`
+	Interval int  `json:"interval" env:"QUANTCLAW_HEARTBEAT_INTERVAL"` // minutes, min 5
 }
 
 type DevicesConfig struct {
-	Enabled    bool `json:"enabled"     env:"PICOCLAW_DEVICES_ENABLED"`
-	MonitorUSB bool `json:"monitor_usb" env:"PICOCLAW_DEVICES_MONITOR_USB"`
+	Enabled    bool `json:"enabled"     env:"QUANTCLAW_DEVICES_ENABLED"`
+	MonitorUSB bool `json:"monitor_usb" env:"QUANTCLAW_DEVICES_MONITOR_USB"`
 }
 
 type ProvidersConfig struct {
@@ -380,16 +380,16 @@ func (p ProvidersConfig) MarshalJSON() ([]byte, error) {
 }
 
 type ProviderConfig struct {
-	APIKey      string `json:"api_key"                env:"PICOCLAW_PROVIDERS_{{.Name}}_API_KEY"`
-	APIBase     string `json:"api_base"               env:"PICOCLAW_PROVIDERS_{{.Name}}_API_BASE"`
-	Proxy       string `json:"proxy,omitempty"        env:"PICOCLAW_PROVIDERS_{{.Name}}_PROXY"`
-	AuthMethod  string `json:"auth_method,omitempty"  env:"PICOCLAW_PROVIDERS_{{.Name}}_AUTH_METHOD"`
-	ConnectMode string `json:"connect_mode,omitempty" env:"PICOCLAW_PROVIDERS_{{.Name}}_CONNECT_MODE"` // only for Github Copilot, `stdio` or `grpc`
+	APIKey      string `json:"api_key"                env:"QUANTCLAW_PROVIDERS_{{.Name}}_API_KEY"`
+	APIBase     string `json:"api_base"               env:"QUANTCLAW_PROVIDERS_{{.Name}}_API_BASE"`
+	Proxy       string `json:"proxy,omitempty"        env:"QUANTCLAW_PROVIDERS_{{.Name}}_PROXY"`
+	AuthMethod  string `json:"auth_method,omitempty"  env:"QUANTCLAW_PROVIDERS_{{.Name}}_AUTH_METHOD"`
+	ConnectMode string `json:"connect_mode,omitempty" env:"QUANTCLAW_PROVIDERS_{{.Name}}_CONNECT_MODE"` // only for Github Copilot, `stdio` or `grpc`
 }
 
 type OpenAIProviderConfig struct {
 	ProviderConfig
-	WebSearch bool `json:"web_search" env:"PICOCLAW_PROVIDERS_OPENAI_WEB_SEARCH"`
+	WebSearch bool `json:"web_search" env:"QUANTCLAW_PROVIDERS_OPENAI_WEB_SEARCH"`
 }
 
 // ModelConfig represents a model-centric provider configuration.
@@ -429,32 +429,32 @@ func (c *ModelConfig) Validate() error {
 }
 
 type GatewayConfig struct {
-	Host string `json:"host" env:"PICOCLAW_GATEWAY_HOST"`
-	Port int    `json:"port" env:"PICOCLAW_GATEWAY_PORT"`
+	Host string `json:"host" env:"QUANTCLAW_GATEWAY_HOST"`
+	Port int    `json:"port" env:"QUANTCLAW_GATEWAY_PORT"`
 }
 
 type BraveConfig struct {
-	Enabled    bool   `json:"enabled"     env:"PICOCLAW_TOOLS_WEB_BRAVE_ENABLED"`
-	APIKey     string `json:"api_key"     env:"PICOCLAW_TOOLS_WEB_BRAVE_API_KEY"`
-	MaxResults int    `json:"max_results" env:"PICOCLAW_TOOLS_WEB_BRAVE_MAX_RESULTS"`
+	Enabled    bool   `json:"enabled"     env:"QUANTCLAW_TOOLS_WEB_BRAVE_ENABLED"`
+	APIKey     string `json:"api_key"     env:"QUANTCLAW_TOOLS_WEB_BRAVE_API_KEY"`
+	MaxResults int    `json:"max_results" env:"QUANTCLAW_TOOLS_WEB_BRAVE_MAX_RESULTS"`
 }
 
 type TavilyConfig struct {
-	Enabled    bool   `json:"enabled"     env:"PICOCLAW_TOOLS_WEB_TAVILY_ENABLED"`
-	APIKey     string `json:"api_key"     env:"PICOCLAW_TOOLS_WEB_TAVILY_API_KEY"`
-	BaseURL    string `json:"base_url"    env:"PICOCLAW_TOOLS_WEB_TAVILY_BASE_URL"`
-	MaxResults int    `json:"max_results" env:"PICOCLAW_TOOLS_WEB_TAVILY_MAX_RESULTS"`
+	Enabled    bool   `json:"enabled"     env:"QUANTCLAW_TOOLS_WEB_TAVILY_ENABLED"`
+	APIKey     string `json:"api_key"     env:"QUANTCLAW_TOOLS_WEB_TAVILY_API_KEY"`
+	BaseURL    string `json:"base_url"    env:"QUANTCLAW_TOOLS_WEB_TAVILY_BASE_URL"`
+	MaxResults int    `json:"max_results" env:"QUANTCLAW_TOOLS_WEB_TAVILY_MAX_RESULTS"`
 }
 
 type DuckDuckGoConfig struct {
-	Enabled    bool `json:"enabled"     env:"PICOCLAW_TOOLS_WEB_DUCKDUCKGO_ENABLED"`
-	MaxResults int  `json:"max_results" env:"PICOCLAW_TOOLS_WEB_DUCKDUCKGO_MAX_RESULTS"`
+	Enabled    bool `json:"enabled"     env:"QUANTCLAW_TOOLS_WEB_DUCKDUCKGO_ENABLED"`
+	MaxResults int  `json:"max_results" env:"QUANTCLAW_TOOLS_WEB_DUCKDUCKGO_MAX_RESULTS"`
 }
 
 type PerplexityConfig struct {
-	Enabled    bool   `json:"enabled"     env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_ENABLED"`
-	APIKey     string `json:"api_key"     env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_API_KEY"`
-	MaxResults int    `json:"max_results" env:"PICOCLAW_TOOLS_WEB_PERPLEXITY_MAX_RESULTS"`
+	Enabled    bool   `json:"enabled"     env:"QUANTCLAW_TOOLS_WEB_PERPLEXITY_ENABLED"`
+	APIKey     string `json:"api_key"     env:"QUANTCLAW_TOOLS_WEB_PERPLEXITY_API_KEY"`
+	MaxResults int    `json:"max_results" env:"QUANTCLAW_TOOLS_WEB_PERPLEXITY_MAX_RESULTS"`
 }
 
 type WebToolsConfig struct {
@@ -465,17 +465,17 @@ type WebToolsConfig struct {
 }
 
 type CronToolsConfig struct {
-	ExecTimeoutMinutes int `json:"exec_timeout_minutes" env:"PICOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES"` // 0 means no timeout
+	ExecTimeoutMinutes int `json:"exec_timeout_minutes" env:"QUANTCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES"` // 0 means no timeout
 }
 
 type ExecConfig struct {
-	EnableDenyPatterns bool     `json:"enable_deny_patterns" env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
-	CustomDenyPatterns []string `json:"custom_deny_patterns" env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
+	EnableDenyPatterns bool     `json:"enable_deny_patterns" env:"QUANTCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
+	CustomDenyPatterns []string `json:"custom_deny_patterns" env:"QUANTCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
 }
 
 type BrowserConfig struct {
-	Enabled bool   `json:"enabled" env:"PICOCLAW_TOOLS_BROWSER_ENABLED"`
-	CDPURL  string `json:"cdp_url,omitempty" env:"PICOCLAW_TOOLS_BROWSER_CDP_URL"` // Chrome DevTools Protocol URL
+	Enabled bool   `json:"enabled" env:"QUANTCLAW_TOOLS_BROWSER_ENABLED"`
+	CDPURL  string `json:"cdp_url,omitempty" env:"QUANTCLAW_TOOLS_BROWSER_CDP_URL"` // Chrome DevTools Protocol URL
 }
 
 type ToolsConfig struct {
@@ -488,13 +488,13 @@ type ToolsConfig struct {
 
 type SkillsToolsConfig struct {
 	Registries            SkillsRegistriesConfig `json:"registries"`
-	MaxConcurrentSearches int                    `json:"max_concurrent_searches" env:"PICOCLAW_SKILLS_MAX_CONCURRENT_SEARCHES"`
+	MaxConcurrentSearches int                    `json:"max_concurrent_searches" env:"QUANTCLAW_SKILLS_MAX_CONCURRENT_SEARCHES"`
 	SearchCache           SearchCacheConfig      `json:"search_cache"`
 }
 
 type SearchCacheConfig struct {
-	MaxSize    int `json:"max_size"    env:"PICOCLAW_SKILLS_SEARCH_CACHE_MAX_SIZE"`
-	TTLSeconds int `json:"ttl_seconds" env:"PICOCLAW_SKILLS_SEARCH_CACHE_TTL_SECONDS"`
+	MaxSize    int `json:"max_size"    env:"QUANTCLAW_SKILLS_SEARCH_CACHE_MAX_SIZE"`
+	TTLSeconds int `json:"ttl_seconds" env:"QUANTCLAW_SKILLS_SEARCH_CACHE_TTL_SECONDS"`
 }
 
 type SkillsRegistriesConfig struct {
@@ -502,15 +502,15 @@ type SkillsRegistriesConfig struct {
 }
 
 type ClawHubRegistryConfig struct {
-	Enabled         bool   `json:"enabled"           env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_ENABLED"`
-	BaseURL         string `json:"base_url"          env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"`
-	AuthToken       string `json:"auth_token"        env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"`
-	SearchPath      string `json:"search_path"       env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"`
-	SkillsPath      string `json:"skills_path"       env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"`
-	DownloadPath    string `json:"download_path"     env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"`
-	Timeout         int    `json:"timeout"           env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"`
-	MaxZipSize      int    `json:"max_zip_size"      env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"`
-	MaxResponseSize int    `json:"max_response_size" env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"`
+	Enabled         bool   `json:"enabled"           env:"QUANTCLAW_SKILLS_REGISTRIES_CLAWHUB_ENABLED"`
+	BaseURL         string `json:"base_url"          env:"QUANTCLAW_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"`
+	AuthToken       string `json:"auth_token"        env:"QUANTCLAW_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"`
+	SearchPath      string `json:"search_path"       env:"QUANTCLAW_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"`
+	SkillsPath      string `json:"skills_path"       env:"QUANTCLAW_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"`
+	DownloadPath    string `json:"download_path"     env:"QUANTCLAW_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"`
+	Timeout         int    `json:"timeout"           env:"QUANTCLAW_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"`
+	MaxZipSize      int    `json:"max_zip_size"      env:"QUANTCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"`
+	MaxResponseSize int    `json:"max_response_size" env:"QUANTCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"`
 }
 
 // TreeMemoryConfig holds configuration for the tree-based memory system

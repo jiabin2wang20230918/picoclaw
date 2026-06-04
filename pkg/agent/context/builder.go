@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/sipeed/picoclaw/pkg/agent/interfaces"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/quantclaw/pkg/agent/interfaces"
+	"github.com/sipeed/quantclaw/pkg/providers"
 )
 
 // ContextBuilder handles assembling system prompts and conversation context.
@@ -50,7 +50,7 @@ func buildMessages(history []providers.Message, summary string, currentMessage s
 	// For now, we'll create a simplified version
 
 	// Create a basic system message
-	systemPrompt := "# picoclaw\n\nYou are picoclaw, a helpful AI assistant."
+	systemPrompt := "# quantclaw\n\nYou are quantclaw, a helpful AI assistant."
 	if summary != "" {
 		systemPrompt += "\n\n## Summary of Previous Conversation\n\n" + summary
 	}
@@ -182,7 +182,7 @@ func (ac *AdaptiveContextBuilder) buildAdaptiveMessages(history []providers.Mess
 	messages := []providers.Message{}
 
 	// Create a basic system message
-	systemPrompt := "# picoclaw\n\nYou are picoclaw, a helpful AI assistant."
+	systemPrompt := "# quantclaw\n\nYou are quantclaw, a helpful AI assistant."
 	if summary != "" {
 		systemPrompt += "\n\n## Summary of Previous Conversation\n\n" + summary
 	}
@@ -232,7 +232,7 @@ func compressHistoryForContext(history []providers.Message, targetMaxLength int)
 	}
 
 	trimmedHistory := make([]providers.Message, 0, keepCount+1)
-	trimmedHistory = append(trimmedHistory, history[0])           // Keep first (usually system)
+	trimmedHistory = append(trimmedHistory, history[0])              // Keep first (usually system)
 	trimmedHistory = append(trimmedHistory, history[startIndex:]...) // Keep last N messages
 
 	return trimmedHistory

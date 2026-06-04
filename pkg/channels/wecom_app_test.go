@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// QuantClaw - Ultra-lightweight personal AI agent
 // WeCom App (企业微信自建应用) channel tests
 
 package channels
@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/quantclaw/pkg/bus"
+	"github.com/sipeed/quantclaw/pkg/config"
 )
 
 // generateTestAESKeyApp generates a valid test AES key for WeCom App
