@@ -47,7 +47,17 @@ func (cb *ContextBuilder) SetToolsRegistry(registry *tools.ToolRegistry) {
 }
 
 func (cb *ContextBuilder) getIdentity() string {
-	now := time.Now().Format("2006-01-02 15:04 (Monday)")
+	t := time.Now()
+	_, offset := t.Zone()
+	offsetSign := "+"
+	if offset < 0 {
+		offsetSign = "-"
+		offset = -offset
+	}
+	offsetHours := offset / 3600
+	offsetMins := (offset % 3600) / 60
+	utcOffset := fmt.Sprintf("UTC%s%02d:%02d", offsetSign, offsetHours, offsetMins)
+	now := t.Format("2006-01-02 15:04 (Monday)") + " " + utcOffset
 	workspacePath, _ := filepath.Abs(filepath.Join(cb.workspace))
 	runtime := fmt.Sprintf("%s %s, Go %s", runtime.GOOS, runtime.GOARCH, runtime.Version())
 
@@ -57,9 +67,6 @@ func (cb *ContextBuilder) getIdentity() string {
 	return fmt.Sprintf(`# quantclaw 🦞
 
 You are quantclaw, a helpful AI assistant.
-
-## Current Time
-%s
 
 ## Runtime
 %s
@@ -78,8 +85,11 @@ Your workspace is at: %s
 
 2. **Be helpful and accurate** - When using tools, briefly explain what you're doing.
 
-3. **Memory** - When interacting with me if something seems memorable, update %s/memory/MEMORY.md`,
-		now, runtime, workspacePath, workspacePath, workspacePath, workspacePath, toolsSection, workspacePath)
+3. **Memory** - When interacting with me if something seems memorable, update %s/memory/MEMORY.md
+
+## Current Time
+%s`,
+		runtime, workspacePath, workspacePath, workspacePath, workspacePath, toolsSection, workspacePath, now)
 }
 
 func (cb *ContextBuilder) buildToolsSection() string {

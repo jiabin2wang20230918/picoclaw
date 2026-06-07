@@ -76,9 +76,7 @@ Your workspace is at: %s
 
 // GetRuntimeLayer returns dynamic information that gets injected each round
 func (ecb *EnhancedContextBuilder) GetRuntimeLayer(channel, chatID string) string {
-	now := time.Now().Format("2006-01-02 15:04 (Monday)")
-
-	layer := fmt.Sprintf("## Current Time\n%s\n", now)
+	var layer string
 
 	if channel != "" && chatID != "" {
 		layer += fmt.Sprintf("\n## Current Session\nChannel: %s\nChat ID: %s", channel, chatID)
@@ -162,6 +160,20 @@ func (ecb *EnhancedContextBuilder) BuildSystemPrompt(channel, chatID string, act
 	if memoryLayer != "" {
 		parts = append(parts, memoryLayer)
 	}
+
+	// 6. Add current time at the end (changes every minute, placed last for cache friendliness)
+	t := time.Now()
+	_, offset := t.Zone()
+	offsetSign := "+"
+	if offset < 0 {
+		offsetSign = "-"
+		offset = -offset
+	}
+	offsetHours := offset / 3600
+	offsetMins := (offset % 3600) / 60
+	utcOffset := fmt.Sprintf("UTC%s%02d:%02d", offsetSign, offsetHours, offsetMins)
+	now := t.Format("2006-01-02 15:04 (Monday)") + " " + utcOffset
+	parts = append(parts, fmt.Sprintf("## Current Time\n%s", now))
 
 	// Join with clear separators to maintain information density
 	return strings.Join(parts, "\n\n---\n\n")
