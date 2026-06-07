@@ -369,7 +369,7 @@ func (a *QuantClawACP) handlePrompt(params json.RawMessage) (interface{}, error)
 	log.Printf("[quantclaw-acp] received user message: %.100s", userMessage)
 
 	// Process the message with QuantClaw
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 900*time.Second)
 	defer cancel()
 
 	// Use a fixed session key based on the ACP session ID
